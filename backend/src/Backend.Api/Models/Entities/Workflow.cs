@@ -16,7 +16,7 @@ public class Workflow : IAuditable
     public required int UserID { get; set; }
 
     [ForeignKey(nameof(UserID))]
-    public required User User { get; set; }
+    public required UserProfile User { get; set; }
 
     [Column("name")]
     public string? Name { get; set; }
