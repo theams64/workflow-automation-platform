@@ -1,7 +1,7 @@
 services:
   db:
     image: postgres:17
-    container_name: wfap-postgres
+    container_name: wap-postgres
     # restart: unless-stopped
     restart: no
     environment:
@@ -11,7 +11,7 @@ services:
     ports:
       - "5432:5432"
 #     volumes:
-#       - wfap_pgdata:/var/lib/postgresql/data
+#       - wap_pgdata:/var/lib/postgresql/data
 
 # volumes:
-#   wfap_pgdata:
+#   wap_pgdata:

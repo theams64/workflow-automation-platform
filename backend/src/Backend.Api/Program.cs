@@ -18,7 +18,7 @@ builder.Services.AddControllers();
 
 // Database
 builder.Services.AddDbContext<AppDbContext>(options => 
-    options.UseNpgsql(configuration.GetConnectionString("Default")));
+    options.UseNpgsql(configuration.GetConnectionString("DefaultConnection")));
 
 // Identity
 builder.Services
@@ -123,3 +123,5 @@ app.MapControllers();
 //app.MapGet("/", () => "Hello World!"); // Testing
 
 app.Run();
+
+public partial class Program { }
