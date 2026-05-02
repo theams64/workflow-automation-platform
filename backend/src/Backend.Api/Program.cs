@@ -1,6 +1,8 @@
 using Backend.Api.Data;
 using Backend.Api.Models.Entities;
 using Backend.Api.Services.Auth;
+using Backend.Api.Services.Common;
+using Backend.Api.Services.Workflow;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -75,6 +77,10 @@ builder.Services.AddAuthorization(options =>
 // Add Services
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
+builder.Services.AddScoped<ICronExpressionValidator, CronExpressionValidator>();
+builder.Services.AddScoped<IJsonValidationHelper, JsonValidationHelper>();
+builder.Services.AddScoped<IWorkflowService, WorkflowService>();
 
 // Add Swagger UI
 builder.Services.AddEndpointsApiExplorer();

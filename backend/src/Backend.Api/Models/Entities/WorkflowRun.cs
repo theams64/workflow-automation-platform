@@ -15,7 +15,7 @@ public class WorkflowRun
     public required int WorkflowID { get; set; }
 
     [ForeignKey(nameof(WorkflowID))]
-    public required Workflow Workflow { get; set; }
+    public Workflow? Workflow { get; set; }
 
     [Column("status")]
     public string? Status { get; set; }

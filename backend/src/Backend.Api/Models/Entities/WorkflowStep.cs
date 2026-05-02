@@ -16,16 +16,16 @@ public class WorkflowStep : IAuditable
     public required int WorkflowID { get; set; }
 
     [ForeignKey(nameof(WorkflowID))]
-    public required Workflow Workflow {  get; set; }
-
-    [Column("step_order")]
-    public required int StepOrder {  get; set; }
+    public Workflow? Workflow {  get; set; }
 
     [Column("step_type")]
     public required string StepType { get; set; }
 
     [Column("config_json")]
     public required string ConfigJson { get; set; }
+
+    [Column("step_order")]
+    public required int StepOrder { get; set; }
 
     [Column("created_at")]
     public DateTimeOffset CreatedAt { get; set; }

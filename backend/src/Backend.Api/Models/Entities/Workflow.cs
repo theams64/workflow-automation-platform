@@ -16,19 +16,24 @@ public class Workflow : IAuditable
     public required int UserID { get; set; }
 
     [ForeignKey(nameof(UserID))]
-    public required UserProfile User { get; set; }
+    public UserProfile? User { get; set; }
 
     [Column("name")]
-    public string? Name { get; set; }
+    [MaxLength(200)]
+    public required string Name { get; set; }
 
     [Column("is_enabled")]
     public required bool IsEnabled { get; set; }
 
     [Column("trigger_type")]
-    public required string? TriggerType { get; set; }
+    public string? TriggerType { get; set; }
 
     [Column("cron_expression")]
+    [MaxLength(100)]
     public string? CronExpression { get; set; }
+
+    [Column("workflow_steps")]
+    public ICollection<WorkflowStep> WorkflowSteps { get; set; } = new List<WorkflowStep>();
 
     [Column("created_at")]
     public DateTimeOffset CreatedAt { get; set; }

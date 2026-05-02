@@ -11,13 +11,13 @@ namespace Backend.Api.Services.Auth
 {
     public sealed class AuthService : IAuthService
     {
-        private readonly AppDbContext _db;
+        private readonly AppDbContext _dbContext;
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly IJwtTokenService _jwt;
 
-        public AuthService(AppDbContext db, UserManager<ApplicationUser> userManager, IJwtTokenService jwt)
+        public AuthService(AppDbContext dbContext, UserManager<ApplicationUser> userManager, IJwtTokenService jwt)
         {
-            _db = db;
+            _dbContext = dbContext;
             _userManager = userManager;
             _jwt = jwt;
         }
@@ -31,7 +31,7 @@ namespace Backend.Api.Services.Auth
                     new ServiceError("email_taken", "Email is already registered."));
             }
 
-            await using var tx = await _db.Database.BeginTransactionAsync(ct);
+            await using var tx = await _dbContext.Database.BeginTransactionAsync(ct);
 
             try
             {
@@ -58,8 +58,8 @@ namespace Backend.Api.Services.Auth
                     UpdatedAt = now
                 };
 
-                _db.UserProfiles.Add(profile);
-                await _db.SaveChangesAsync(ct);
+                _dbContext.UserProfile.Add(profile);
+                await _dbContext.SaveChangesAsync(ct);
 
                 await tx.CommitAsync(ct);
 
@@ -113,7 +113,7 @@ namespace Backend.Api.Services.Auth
                     new ServiceError("unauthorized", "Missing or invalid user id claim."));
             }
 
-            var profile = await _db.UserProfiles.SingleOrDefaultAsync(x => x.IdentityUserId == userId, ct);
+            var profile = await _dbContext.UserProfile.SingleOrDefaultAsync(x => x.IdentityUserId == userId, ct);
             if (profile is null)
             {
                 return ServiceResult<UserProfileDto>.Fail(

@@ -61,7 +61,7 @@ namespace Backend.Api.Tests.Integration
             // Assert
             result.Succeeded.Should().BeFalse();
             result.Errors.Should().ContainSingle(e => e.Code == "PasswordTooWeak");
-            db.UserProfiles.Should().BeEmpty();
+            db.UserProfile.Should().BeEmpty();
         }
 
         [Fact]
@@ -127,7 +127,7 @@ namespace Backend.Api.Tests.Integration
             await db.SaveChangesAsync();
 
             // Then insert profile row
-            db.UserProfiles.Add(new UserProfile
+            db.UserProfile.Add(new UserProfile
             {
                 IdentityUserId = 7,
                 DisplayName = "Test User",
