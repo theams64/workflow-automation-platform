@@ -1,21 +1,29 @@
 ﻿using Backend.Api.Data;
-using Backend.Api.Services.Auth;
+using Backend.Api.Infrastructure.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using System.Threading.RateLimiting;
 
 namespace Backend.Api.Tests.Integration
 {
     public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
     {
-        private const string TestIssuer = "TestIssuer";
-        private const string TestAudience = "TestAudience";
-        private const string TestKey = "ThisIsATestJwtKeyThatIsLongEnough123!";
+        public const string TestIssuer = "https://localhost";
+        public const string TestAudience = "TestAudience";
+        public const string TestKey = "ThisIsATestJwtKeyThatIsLongEnough123!";
+        public const string TestAccessTokenMinutes = "10";
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -27,7 +35,8 @@ namespace Backend.Api.Tests.Integration
                         "Host=localhost;Port=5433;Database=test-workflow-automation-platform;Username=test_wap_user;Password=test_wap_dev_password",
                     ["Jwt:Issuer"] = TestIssuer,
                     ["Jwt:Audience"] = TestAudience,
-                    ["Jwt:Key"] = TestKey
+                    ["Jwt:Key"] = TestKey,
+                    ["Jwt:AccessTokenMinutes"] = TestAccessTokenMinutes
                 };
 
                 configBuilder.AddInMemoryCollection(config);
@@ -58,6 +67,50 @@ namespace Backend.Api.Tests.Integration
 
                 db.Database.EnsureDeleted();
                 db.Database.Migrate();
+            });
+
+            builder.ConfigureTestServices(services =>
+            {
+                // Remove the rate-limiter configuration registered by Program.cs.
+                services.RemoveAll<IConfigureOptions<RateLimiterOptions>>();
+                services.RemoveAll<IPostConfigureOptions<RateLimiterOptions>>();
+
+                // Register permissive policies for normal integration tests.
+                services.AddRateLimiter(options =>
+                {
+                    options.RejectionStatusCode =
+                        StatusCodes.Status429TooManyRequests;
+
+                    options.GlobalLimiter =
+                        PartitionedRateLimiter.Create<HttpContext, string>(
+                            httpContext =>
+                                RateLimitPartition.GetNoLimiter(
+                                    partitionKey: "integration-tests"));
+
+                    options.AddPolicy(
+                        RateLimitingPolicies.Login,
+                        httpContext =>
+                            RateLimitPartition.GetNoLimiter(
+                                partitionKey: "integration-tests"));
+
+                    options.AddPolicy(
+                        RateLimitingPolicies.Registration,
+                        httpContext =>
+                            RateLimitPartition.GetNoLimiter(
+                                partitionKey: "integration-tests"));
+
+                    options.AddPolicy(
+                        RateLimitingPolicies.PasswordReset,
+                        httpContext =>
+                            RateLimitPartition.GetNoLimiter(
+                                partitionKey: "integration-tests"));
+
+                    options.AddPolicy(
+                        RateLimitingPolicies.TokenRefresh,
+                        httpContext =>
+                            RateLimitPartition.GetNoLimiter(
+                                partitionKey: "integration-tests"));
+                });
             });
         }
 

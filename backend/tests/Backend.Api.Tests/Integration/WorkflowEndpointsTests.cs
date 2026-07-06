@@ -5,7 +5,6 @@ using Backend.Api.Models.Entities;
 using Backend.Api.Tests.Common;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration.UserSecrets;
 using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Net.Http.Headers;
@@ -243,10 +242,10 @@ namespace Backend.Api.Tests.Integration
             await db.SaveChangesAsync();
         }
 
-        private async Task<HttpClient> CreateAuthenticatedClientWithSeededUserAsync(int userId, string email = "user@example.com:", string displayName = "Test User")
+        private async Task<HttpClient> CreateAuthenticatedClientWithSeededUserAsync(int userId, string email = "user@example.com", string displayName = "Test User")
         {
             await SeedAuthenticatedUserAsync(userId, email, displayName);
-            
+
             var client = _factory.CreateClient();
             var token = WorkflowTestHelpers.CreateJwtToken(userId);
 

@@ -1,7 +1,11 @@
 ﻿using Backend.Api.Data;
 using Backend.Api.Models.Entities;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 
 namespace Backend.Api.Tests.Common
@@ -22,6 +26,23 @@ namespace Backend.Api.Tests.Common
                 null!,
                 null!,
                 null!);
+        }
+
+        public static Mock<SignInManager<ApplicationUser>> CreateMockSignInManager(UserManager<ApplicationUser> userManager)
+        {
+            var contextAccessor = new Mock<IHttpContextAccessor>();
+            var claimsFactory = new Mock<IUserClaimsPrincipalFactory<ApplicationUser>>();
+            var authenticationSchemeProvider = new Mock<IAuthenticationSchemeProvider>();
+            var userConfirmation = new Mock<IUserConfirmation<ApplicationUser>>();
+
+            return new Mock<SignInManager<ApplicationUser>>(
+                userManager,
+                contextAccessor.Object,
+                claimsFactory.Object,
+                Options.Create(new IdentityOptions()),
+                Mock.Of<ILogger<SignInManager<ApplicationUser>>>(),
+                authenticationSchemeProvider.Object,
+                userConfirmation.Object);
         }
 
         public static AppDbContext CreateUnusedDbContext()

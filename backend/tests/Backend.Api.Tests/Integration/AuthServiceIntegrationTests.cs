@@ -8,7 +8,6 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using System.Security.Claims;
-using Xunit;
 
 namespace Backend.Api.Tests.Integration
 {
@@ -31,6 +30,7 @@ namespace Backend.Api.Tests.Integration
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
             var userManager = TestHelpers.CreateMockUserManager();
+            var signInManager = TestHelpers.CreateMockSignInManager(userManager.Object);
             var jwtService = new Mock<IJwtTokenService>();
 
             userManager
@@ -46,7 +46,7 @@ namespace Backend.Api.Tests.Integration
                         Description = "Password is too weak."
                     }));
 
-            var service = new AuthService(db, userManager.Object, jwtService.Object);
+            var service = new AuthService(db, userManager.Object, signInManager.Object, jwtService.Object);
 
             var dto = new RegisterRequestDto
             {
@@ -74,6 +74,7 @@ namespace Backend.Api.Tests.Integration
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
             var userManager = TestHelpers.CreateMockUserManager();
+            var signInManager = TestHelpers.CreateMockSignInManager(userManager.Object);
             var jwtService = new Mock<IJwtTokenService>();
 
             var user = new ApplicationUser
@@ -87,7 +88,7 @@ namespace Backend.Api.Tests.Integration
                 .Setup(x => x.FindByIdAsync("42"))
                 .ReturnsAsync(user);
 
-            var service = new AuthService(db, userManager.Object, jwtService.Object);
+            var service = new AuthService(db, userManager.Object, signInManager.Object, jwtService.Object);
 
             var principal = new ClaimsPrincipal(new ClaimsIdentity(
             [
@@ -138,6 +139,7 @@ namespace Backend.Api.Tests.Integration
             await db.SaveChangesAsync();
 
             var userManager = TestHelpers.CreateMockUserManager();
+            var signInManager = TestHelpers.CreateMockSignInManager(userManager.Object);
             var jwtService = new Mock<IJwtTokenService>();
 
             userManager
@@ -149,7 +151,7 @@ namespace Backend.Api.Tests.Integration
                     UserName = "user@example.com"
                 });
 
-            var service = new AuthService(db, userManager.Object, jwtService.Object);
+            var service = new AuthService(db, userManager.Object, signInManager.Object, jwtService.Object);
 
             var principal = new ClaimsPrincipal(new ClaimsIdentity(
             [

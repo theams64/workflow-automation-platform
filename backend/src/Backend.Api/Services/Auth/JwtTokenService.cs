@@ -1,5 +1,6 @@
-﻿using Backend.Api.Models.Entities;
-using Microsoft.AspNetCore.Mvc.ModelBinding.Metadata;
+﻿using Backend.Api.Configuration;
+using Backend.Api.Models.Entities;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -9,37 +10,42 @@ namespace Backend.Api.Services.Auth
 {
     public sealed class JwtTokenService : IJwtTokenService
     {
-        private readonly IConfiguration _config;
+        private readonly JwtOptions _options;
+        private readonly SigningCredentials _signingCredentials;
 
-        public JwtTokenService(IConfiguration config) =>_config = config;
+        public JwtTokenService(IOptions<JwtOptions> options)
+        {
+            _options = options.Value;
 
-        public int AccessTokenLifetimeSeconds => 60 * 30;
+            var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.Key));
+
+            _signingCredentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
+        }
+
+        public int AccessTokenLifetimeSeconds => checked(_options.AccessTokenMinutes * 60);
 
         public string CreateAccessToken(ApplicationUser user)
         {
-            var jwt = _config.GetSection("jwt");
-            var issuer = jwt["Issuer"]!;
-            var audience = jwt["Audience"]!;
-            var key = jwt["Key"];
-            var signingKey  = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
+            ArgumentNullException.ThrowIfNull(user);
+
+            var now = DateTime.UtcNow;
 
             var claims = new List<Claim>
             {
+                new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
                 new(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                new(ClaimTypes.Email, user.Email ?? ""),
-                new(ClaimTypes.Name, user.UserName ?? user.Email ?? "")
+                new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+                new(ClaimTypes.Email, user.Email ?? string.Empty),
+                new(ClaimTypes.Name, user.UserName ?? user.Email ?? string.Empty)
             };
 
-            var creds = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
-            var expires = DateTime.UtcNow.AddSeconds(AccessTokenLifetimeSeconds);
-
             var token = new JwtSecurityToken(
-                issuer: issuer,
-                audience: audience,
+                issuer: _options.Issuer,
+                audience: _options.Audience,
                 claims: claims,
-                notBefore: DateTime.UtcNow,
-                expires: expires,
-                signingCredentials: creds);
+                notBefore: now,
+                expires: now.AddMinutes(_options.AccessTokenMinutes),
+                signingCredentials: _signingCredentials);
 
             return new JwtSecurityTokenHandler().WriteToken(token);
         }

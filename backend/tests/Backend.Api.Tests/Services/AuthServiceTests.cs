@@ -7,7 +7,6 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Identity;
 using Moq;
 using System.Security.Claims;
-using Xunit;
 
 namespace Backend.Api.Tests.Services
 {
@@ -19,6 +18,7 @@ namespace Backend.Api.Tests.Services
             // Arrange
             using var db = TestHelpers.CreateUnusedDbContext();
             var userManager = TestHelpers.CreateMockUserManager();
+            var signInManager = TestHelpers.CreateMockSignInManager(userManager.Object);
             var jwtService = new Mock<IJwtTokenService>();
 
             userManager
@@ -30,7 +30,7 @@ namespace Backend.Api.Tests.Services
                     UserName = "existing@example.com"
                 });
 
-            var service = new AuthService(db, userManager.Object, jwtService.Object);
+            var service = new AuthService(db, userManager.Object, signInManager.Object, jwtService.Object);
 
             var dto = new RegisterRequestDto
             {
@@ -53,6 +53,7 @@ namespace Backend.Api.Tests.Services
             // Arrange
             using var db = TestHelpers.CreateUnusedDbContext();
             var userManager = TestHelpers.CreateMockUserManager();
+            var signInManager = TestHelpers.CreateMockSignInManager(userManager.Object);
             var jwtService = new Mock<IJwtTokenService>();
 
             var user = new ApplicationUser
@@ -66,11 +67,11 @@ namespace Backend.Api.Tests.Services
                 .Setup(x => x.FindByEmailAsync(It.IsAny<string>()))
                 .ReturnsAsync(user);
 
-            userManager
-                .Setup(x => x.CheckPasswordAsync(user, It.IsAny<string>()))
-                .ReturnsAsync(false);
+            signInManager
+                .Setup(x => x.CheckPasswordSignInAsync(user, It.IsAny<string>(), true))
+                .ReturnsAsync(SignInResult.Failed);
 
-            var service = new AuthService(db, userManager.Object, jwtService.Object);
+            var service = new AuthService(db, userManager.Object, signInManager.Object, jwtService.Object);
 
             var dto = new LoginRequestDto
             {
@@ -84,6 +85,8 @@ namespace Backend.Api.Tests.Services
             // Assert
             result.Succeeded.Should().BeFalse();
             result.Errors.Should().ContainSingle(e => e.Code == "invalid_credentials");
+
+            jwtService.Verify(x => x.CreateAccessToken(It.IsAny<ApplicationUser>()),Times.Never);
         }
 
         [Fact]
@@ -92,13 +95,14 @@ namespace Backend.Api.Tests.Services
             // Arrange
             using var db = TestHelpers.CreateUnusedDbContext();
             var userManager = TestHelpers.CreateMockUserManager();
+            var signInManager = TestHelpers.CreateMockSignInManager(userManager.Object);
             var jwtService = new Mock<IJwtTokenService>();
 
             userManager
                 .Setup(x => x.FindByEmailAsync(It.IsAny<string>()))
                 .ReturnsAsync((ApplicationUser?)null);
 
-            var service = new AuthService(db, userManager.Object, jwtService.Object);
+            var service = new AuthService(db, userManager.Object, signInManager.Object, jwtService.Object);
 
             var dto = new LoginRequestDto
             {
@@ -120,6 +124,7 @@ namespace Backend.Api.Tests.Services
             // Arrange
             using var db = TestHelpers.CreateUnusedDbContext();
             var userManager = TestHelpers.CreateMockUserManager();
+            var signInManager = TestHelpers.CreateMockSignInManager(userManager.Object);
             var jwtService = new Mock<IJwtTokenService>();
 
             var user = new ApplicationUser
@@ -133,9 +138,9 @@ namespace Backend.Api.Tests.Services
                 .Setup(x => x.FindByEmailAsync(It.IsAny<string>()))
                 .ReturnsAsync(user);
 
-            userManager
-                .Setup(x => x.CheckPasswordAsync(user, It.IsAny<string>()))
-                .ReturnsAsync(true);
+            signInManager
+                .Setup(x => x.CheckPasswordSignInAsync(user, "Password123", true))
+                .ReturnsAsync(SignInResult.Success);
 
             jwtService
                 .Setup(x => x.CreateAccessToken(user))
@@ -145,7 +150,7 @@ namespace Backend.Api.Tests.Services
                 .SetupGet(x => x.AccessTokenLifetimeSeconds)
                 .Returns(1800);
 
-            var service = new AuthService(db, userManager.Object, jwtService.Object);
+            var service = new AuthService(db, userManager.Object, signInManager.Object, jwtService.Object);
 
             var dto = new LoginRequestDto
             {
@@ -161,6 +166,8 @@ namespace Backend.Api.Tests.Services
             result.Data.Should().NotBeNull();
             result.Data!.AccessToken.Should().Be("fake-jwt-token");
             result.Data.ExpiresInSeconds.Should().Be(1800);
+
+            jwtService.Verify(x => x.CreateAccessToken(user), Times.Once);
         }
 
         [Fact]
@@ -169,9 +176,10 @@ namespace Backend.Api.Tests.Services
             // Arrange
             using var db = TestHelpers.CreateUnusedDbContext();
             var userManager = TestHelpers.CreateMockUserManager();
+            var signInManager = TestHelpers.CreateMockSignInManager(userManager.Object);
             var jwtService = new Mock<IJwtTokenService>();
 
-            var service = new AuthService(db, userManager.Object, jwtService.Object);
+            var service = new AuthService(db, userManager.Object, signInManager.Object, jwtService.Object);
 
             var principal = new ClaimsPrincipal(new ClaimsIdentity());
 

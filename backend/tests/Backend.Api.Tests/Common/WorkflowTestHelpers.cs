@@ -1,13 +1,14 @@
-﻿using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
-using Backend.Api.Data;
+﻿using Backend.Api.Data;
 using Backend.Api.Models.Entities;
 using Backend.Api.Services.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using Moq;
+using System.IdentityModel.Tokens.Jwt;
+using System.Net;
+using System.Security.Claims;
+using System.Text;
 
 namespace Backend.Api.Tests.Common
 {
@@ -46,7 +47,7 @@ namespace Backend.Api.Tests.Common
             return mock;
         }
 
-        public static string CreateJwtToken(int userId, string issuer = "TestIssuer", string audience = "TestAudience", string key = "ThisIsATestJwtKeyThatIsLongEnough123!")
+        public static string CreateJwtToken(int userId, string issuer = "https://localhost", string audience = "TestAudience", string key = "ThisIsATestJwtKeyThatIsLongEnough123!", int accessTokenMinutes = 10)
         {
             var claims = new[]
             {
@@ -56,12 +57,14 @@ namespace Backend.Api.Tests.Common
             var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
             var creds = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
 
+            var now = DateTime.UtcNow;
+
             var token = new JwtSecurityToken(
                 issuer: issuer,
                 audience: audience,
                 claims: claims,
-                notBefore: DateTime.UtcNow.AddMinutes(-1),
-                expires: DateTime.UtcNow.AddHours(1),
+                notBefore: now.AddMinutes(-1),
+                expires: now.AddMinutes(accessTokenMinutes),
                 signingCredentials: creds);
 
             return new JwtSecurityTokenHandler().WriteToken(token);
