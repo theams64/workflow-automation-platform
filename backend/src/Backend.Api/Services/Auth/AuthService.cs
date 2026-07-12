@@ -15,18 +15,22 @@ namespace Backend.Api.Services.Auth
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly IJwtTokenService _jwt;
+        private readonly IRefreshTokenService _refreshTokens;
 
-        public AuthService(AppDbContext dbContext, UserManager<ApplicationUser> userManager, SignInManager<ApplicationUser> signInManager, IJwtTokenService jwt)
+        public AuthService(AppDbContext dbContext, UserManager<ApplicationUser> userManager, SignInManager<ApplicationUser> signInManager, IJwtTokenService jwt, IRefreshTokenService refreshTokens)
         {
             _dbContext = dbContext;
             _userManager = userManager;
             _signInManager = signInManager;
             _jwt = jwt;
+            _refreshTokens = refreshTokens;
         }
 
         public async Task<ServiceResult<UserProfileDto>> RegisterAsync(RegisterRequestDto dto, CancellationToken ct = default)
         {
-            var existing = await _userManager.FindByEmailAsync(dto.Email);
+            var normalizedEmail = dto.Email.Trim();
+
+            var existing = await _userManager.FindByEmailAsync(normalizedEmail);
 
             if (existing is not null)
             {
@@ -39,8 +43,8 @@ namespace Backend.Api.Services.Auth
             {
                 var user = new ApplicationUser
                 {
-                    UserName = dto.Email,
-                    Email = dto.Email
+                    UserName = normalizedEmail,
+                    Email = normalizedEmail
                 };
 
                 var createResult = await _userManager.CreateAsync(user, dto.Password);
@@ -48,17 +52,14 @@ namespace Backend.Api.Services.Auth
                 if (!createResult.Succeeded)
                 {
                     var errors = createResult.Errors.Select(e => new ServiceError(e.Code, e.Description));
+
                     return ServiceResult<UserProfileDto>.Fail(errors);
                 }
-
-                var now = DateTimeOffset.UtcNow;
 
                 var profile = new UserProfile
                 {
                     IdentityUserId = user.Id,
-                    DisplayName = dto.DisplayName,
-                    CreatedAt = now,
-                    UpdatedAt = now
+                    DisplayName = NormalizeOptionalValue(dto.DisplayName)
                 };
 
                 _dbContext.UserProfile.Add(profile);
@@ -85,7 +86,9 @@ namespace Backend.Api.Services.Auth
 
         public async Task<ServiceResult<AuthResponseDto>> LoginAsync(LoginRequestDto dto, CancellationToken ct = default)
         {
-            var user = await _userManager.FindByEmailAsync(dto.Email);
+            var email = dto.Email.Trim();
+
+            var user = await _userManager.FindByEmailAsync(email);
 
             if (user is null)
             {
@@ -99,28 +102,54 @@ namespace Backend.Api.Services.Auth
                 return InvalidCredentials();
             }
 
-            var token = _jwt.CreateAccessToken(user);
+            var refreshResult = await _refreshTokens.IssueAsync(user.Id, ct);
 
-            return ServiceResult<AuthResponseDto>.Ok(
-                new AuthResponseDto
-                {
-                    AccessToken = token,
-                    ExpiresInSeconds = _jwt.AccessTokenLifetimeSeconds
-                });
+            if (!refreshResult.Succeeded || refreshResult.Data is null)
+            {
+                return ServiceResult<AuthResponseDto>.Fail(refreshResult.Errors);
+            }
+
+            return ServiceResult<AuthResponseDto>.Ok(CreateAuthResponse(user, refreshResult.Data.RawToken, refreshResult.Data.ExpiresAtUtc));
+        }
+
+        public async Task<ServiceResult<AuthResponseDto>> RefreshAsync(RefreshTokenRequestDto dto, CancellationToken ct = default)
+        {
+            var rotationResult = await _refreshTokens.RotateAsync(dto.RefreshToken, ct);
+
+            if (!rotationResult.Succeeded || rotationResult.Data is null)
+            {
+                return ServiceResult<AuthResponseDto>.Fail(rotationResult.Errors);
+            }
+
+            return ServiceResult<AuthResponseDto>.Ok(CreateAuthResponse(rotationResult.Data.User, rotationResult.Data.RawToken, rotationResult.Data.ExpiresAtUtc));
+        }
+
+        public async Task<ServiceResult<bool>> RevokeRefreshTokenAsync(ClaimsPrincipal principal, RevokeRefreshTokenRequestDto dto, CancellationToken ct = default)
+        {
+            var userIdResult = GetUserId(principal);
+
+            if (!userIdResult.Succeeded || userIdResult.Data is null)
+            {
+                return ServiceResult<bool>.Fail(userIdResult.Errors);
+            }
+
+            return await _refreshTokens.RevokeFamilyAsync(userIdResult.Data.Value, dto.RefreshToken, ct);
         }
 
         public async Task<ServiceResult<UserProfileDto>> GetMeAsync(ClaimsPrincipal principal, CancellationToken ct = default)
         {
-            var idString = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            var userIdResult = GetUserId(principal);
 
-            if (!int.TryParse(idString, out var userId))
+            if (!userIdResult.Succeeded || userIdResult.Data is null)
             {
-                return ServiceResult<UserProfileDto>.Fail(new ServiceError("unauthorized", "Missing or invalid user id claim."));
+                return ServiceResult<UserProfileDto>.Fail(userIdResult.Errors);
             }
+
+            var userId = userIdResult.Data.Value;
 
             var profile = await _dbContext.UserProfile
                 .AsNoTracking()
-                .SingleOrDefaultAsync(x => x.IdentityUserId == userId, ct);
+                .SingleOrDefaultAsync(candidate => candidate.IdentityUserId == userId, ct);
 
             if (profile is null)
             {
@@ -145,9 +174,42 @@ namespace Backend.Api.Services.Auth
                 });
         }
 
+        private AuthResponseDto CreateAuthResponse(ApplicationUser user, string refreshToken, DateTimeOffset refreshExpiresAtUtc)
+        {
+            return new AuthResponseDto
+            {
+                AccessToken = _jwt.CreateAccessToken(user),
+                ExpiresInSeconds = _jwt.AccessTokenLifetimeSeconds,
+                RefreshToken = refreshToken,
+                RefreshTokenExpiresAtUtc = refreshExpiresAtUtc
+            };
+        }
+
+        private static ServiceResult<int?> GetUserId(ClaimsPrincipal principal)
+        {
+            var idString = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            if (!int.TryParse(idString, out var userId))
+            {
+                return ServiceResult<int?>.Fail(new ServiceError("unauthorized", "Missing or invalid user id claim."));
+            }
+
+            return ServiceResult<int?>.Ok(userId);
+        }
+
+        private static string? NormalizeOptionalValue(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            return value.Trim();
+        }
+
         private static ServiceResult<AuthResponseDto> InvalidCredentials()
         {
-            return ServiceResult<AuthResponseDto>.Fail(new ServiceError("invalid_credentials", "invalid_credentials"));
+            return ServiceResult<AuthResponseDto>.Fail(new ServiceError("invalid_credentials", "Invalid Credentials."));
         }
     }
 }

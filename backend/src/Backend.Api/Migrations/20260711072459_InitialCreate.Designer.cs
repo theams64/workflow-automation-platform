@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Backend.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260405184059_UpdateWorkflowSchemaForServiceIntegration")]
-    partial class UpdateWorkflowSchemaForServiceIntegration
+    [Migration("20260711072459_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -105,6 +105,63 @@ namespace Backend.Api.Migrations
                         .HasDatabaseName("UserNameIndex");
 
                     b.ToTable("asp_net_users", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Api.Models.Entities.RefreshToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<Guid>("FamilyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("family_id");
+
+                    b.Property<Guid?>("ReplacedByTokenId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("replaced_by_token_id");
+
+                    b.Property<string>("RevocationReason")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("revocation_reason");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("token_hash")
+                        .IsFixedLength();
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FamilyId");
+
+                    b.HasIndex("ReplacedByTokenId")
+                        .IsUnique();
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "RevokedAt", "ExpiresAt");
+
+                    b.ToTable("refresh_token", (string)null);
                 });
 
             modelBuilder.Entity("Backend.Api.Models.Entities.StepRun", b =>
@@ -237,9 +294,10 @@ namespace Backend.Api.Migrations
 
                     b.HasKey("ID");
 
-                    b.HasIndex("UserID");
+                    b.HasIndex("UserID", "Name")
+                        .IsUnique();
 
-                    b.ToTable("workflow");
+                    b.ToTable("workflow", (string)null);
                 });
 
             modelBuilder.Entity("Backend.Api.Models.Entities.WorkflowRun", b =>
@@ -293,7 +351,7 @@ namespace Backend.Api.Migrations
 
                     b.Property<string>("ConfigJson")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasColumnType("jsonb")
                         .HasColumnName("config_json");
 
                     b.Property<DateTimeOffset>("CreatedAt")
@@ -306,7 +364,8 @@ namespace Backend.Api.Migrations
 
                     b.Property<string>("StepType")
                         .IsRequired()
-                        .HasColumnType("text")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("step_type");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
@@ -319,9 +378,10 @@ namespace Backend.Api.Migrations
 
                     b.HasKey("ID");
 
-                    b.HasIndex("WorkflowID");
+                    b.HasIndex("WorkflowID", "StepOrder")
+                        .IsUnique();
 
-                    b.ToTable("workflow_step");
+                    b.ToTable("workflow_step", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole<int>", b =>
@@ -476,6 +536,22 @@ namespace Backend.Api.Migrations
                     b.HasKey("UserId", "LoginProvider", "Name");
 
                     b.ToTable("asp_net_user_tokens", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Api.Models.Entities.RefreshToken", b =>
+                {
+                    b.HasOne("Backend.Api.Models.Entities.RefreshToken", null)
+                        .WithOne()
+                        .HasForeignKey("Backend.Api.Models.Entities.RefreshToken", "ReplacedByTokenId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Api.Models.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Backend.Api.Models.Entities.StepRun", b =>

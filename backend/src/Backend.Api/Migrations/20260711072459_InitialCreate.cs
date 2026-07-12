@@ -7,18 +7,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Backend.Api.Migrations
 {
     /// <inheritdoc />
-    public partial class CreateIdentitySchema : Migration
+    public partial class InitialCreate : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropForeignKey(
-                name: "FK_workflow_user_user_id",
-                table: "workflow");
-
-            migrationBuilder.DropTable(
-                name: "user");
-
             migrationBuilder.CreateTable(
                 name: "asp_net_roles",
                 columns: table => new
@@ -167,6 +160,37 @@ namespace Backend.Api.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "refresh_token",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    user_id = table.Column<int>(type: "integer", nullable: false),
+                    token_hash = table.Column<string>(type: "character(64)", fixedLength: true, maxLength: 64, nullable: false),
+                    family_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    expires_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    revoked_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    replaced_by_token_id = table.Column<Guid>(type: "uuid", nullable: true),
+                    revocation_reason = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_refresh_token", x => x.id);
+                    table.ForeignKey(
+                        name: "FK_refresh_token_asp_net_users_user_id",
+                        column: x => x.user_id,
+                        principalTable: "asp_net_users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_refresh_token_refresh_token_replaced_by_token_id",
+                        column: x => x.replaced_by_token_id,
+                        principalTable: "refresh_token",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "user_profile",
                 columns: table => new
                 {
@@ -184,6 +208,112 @@ namespace Backend.Api.Migrations
                         name: "FK_user_profile_asp_net_users_identity_user_id",
                         column: x => x.identity_user_id,
                         principalTable: "asp_net_users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "workflow",
+                columns: table => new
+                {
+                    id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    user_id = table.Column<int>(type: "integer", nullable: false),
+                    name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+                    is_enabled = table.Column<bool>(type: "boolean", nullable: false),
+                    trigger_type = table.Column<string>(type: "text", nullable: true),
+                    cron_expression = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
+                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_workflow", x => x.id);
+                    table.ForeignKey(
+                        name: "FK_workflow_user_profile_user_id",
+                        column: x => x.user_id,
+                        principalTable: "user_profile",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "workflow_run",
+                columns: table => new
+                {
+                    id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    workflow_id = table.Column<int>(type: "integer", nullable: false),
+                    status = table.Column<string>(type: "text", nullable: true),
+                    triggered_by = table.Column<string>(type: "text", nullable: true),
+                    started_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    finished_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    input_payload = table.Column<string>(type: "text", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_workflow_run", x => x.id);
+                    table.ForeignKey(
+                        name: "FK_workflow_run_workflow_workflow_id",
+                        column: x => x.workflow_id,
+                        principalTable: "workflow",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "workflow_step",
+                columns: table => new
+                {
+                    id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    workflow_id = table.Column<int>(type: "integer", nullable: false),
+                    step_type = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    config_json = table.Column<string>(type: "jsonb", nullable: false),
+                    step_order = table.Column<int>(type: "integer", nullable: false),
+                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_workflow_step", x => x.id);
+                    table.ForeignKey(
+                        name: "FK_workflow_step_workflow_workflow_id",
+                        column: x => x.workflow_id,
+                        principalTable: "workflow",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "step_run",
+                columns: table => new
+                {
+                    id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    workflow_run_id = table.Column<int>(type: "integer", nullable: false),
+                    workflow_step_id = table.Column<int>(type: "integer", nullable: false),
+                    status = table.Column<string>(type: "text", nullable: true),
+                    started_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    finished_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    input_json = table.Column<string>(type: "text", nullable: false),
+                    output_json = table.Column<string>(type: "text", nullable: true),
+                    error = table.Column<string>(type: "text", nullable: true),
+                    attempt = table.Column<int>(type: "integer", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_step_run", x => x.id);
+                    table.ForeignKey(
+                        name: "FK_step_run_workflow_run_workflow_run_id",
+                        column: x => x.workflow_run_id,
+                        principalTable: "workflow_run",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_step_run_workflow_run_workflow_step_id",
+                        column: x => x.workflow_step_id,
+                        principalTable: "workflow_run",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -226,27 +356,64 @@ namespace Backend.Api.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_refresh_token_family_id",
+                table: "refresh_token",
+                column: "family_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_refresh_token_replaced_by_token_id",
+                table: "refresh_token",
+                column: "replaced_by_token_id",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_refresh_token_token_hash",
+                table: "refresh_token",
+                column: "token_hash",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_refresh_token_user_id_revoked_at_expires_at",
+                table: "refresh_token",
+                columns: new[] { "user_id", "revoked_at", "expires_at" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_step_run_workflow_run_id",
+                table: "step_run",
+                column: "workflow_run_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_step_run_workflow_step_id",
+                table: "step_run",
+                column: "workflow_step_id");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_user_profile_identity_user_id",
                 table: "user_profile",
                 column: "identity_user_id",
                 unique: true);
 
-            migrationBuilder.AddForeignKey(
-                name: "FK_workflow_user_profile_user_id",
+            migrationBuilder.CreateIndex(
+                name: "IX_workflow_user_id_name",
                 table: "workflow",
-                column: "user_id",
-                principalTable: "user_profile",
-                principalColumn: "id",
-                onDelete: ReferentialAction.Cascade);
+                columns: new[] { "user_id", "name" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_workflow_run_workflow_id",
+                table: "workflow_run",
+                column: "workflow_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_workflow_step_workflow_id_step_order",
+                table: "workflow_step",
+                columns: new[] { "workflow_id", "step_order" },
+                unique: true);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropForeignKey(
-                name: "FK_workflow_user_profile_user_id",
-                table: "workflow");
-
             migrationBuilder.DropTable(
                 name: "asp_net_role_claims");
 
@@ -263,37 +430,28 @@ namespace Backend.Api.Migrations
                 name: "asp_net_user_tokens");
 
             migrationBuilder.DropTable(
-                name: "user_profile");
+                name: "refresh_token");
+
+            migrationBuilder.DropTable(
+                name: "step_run");
+
+            migrationBuilder.DropTable(
+                name: "workflow_step");
 
             migrationBuilder.DropTable(
                 name: "asp_net_roles");
 
             migrationBuilder.DropTable(
+                name: "workflow_run");
+
+            migrationBuilder.DropTable(
+                name: "workflow");
+
+            migrationBuilder.DropTable(
+                name: "user_profile");
+
+            migrationBuilder.DropTable(
                 name: "asp_net_users");
-
-            migrationBuilder.CreateTable(
-                name: "user",
-                columns: table => new
-                {
-                    id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    email = table.Column<string>(type: "text", nullable: false),
-                    password_hash = table.Column<string>(type: "text", nullable: false),
-                    updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_user", x => x.id);
-                });
-
-            migrationBuilder.AddForeignKey(
-                name: "FK_workflow_user_user_id",
-                table: "workflow",
-                column: "user_id",
-                principalTable: "user",
-                principalColumn: "id",
-                onDelete: ReferentialAction.Cascade);
         }
     }
 }

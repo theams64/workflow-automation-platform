@@ -5,11 +5,15 @@ namespace Backend.Api.Models.Dtos.Auth
     public sealed class RegisterRequestDto
     {
         [Required]
-        public string Email { get; set; } = default!;
+        [EmailAddress]
+        [StringLength(254)]
+        public string Email { get; init; } = string.Empty;
 
         [Required]
-        public string Password { get; set; } = default!;
+        [StringLength(maximumLength: 128, MinimumLength = 8)]
+        public string Password { get; init; } = string.Empty;
 
-        public string? DisplayName { get; set; }
+        [StringLength(100)]
+        public string? DisplayName { get; init; }
     }
 }

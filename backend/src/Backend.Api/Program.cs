@@ -56,9 +56,26 @@ builder.Services
     .AddOptions<JwtOptions>()
     .Bind(configuration.GetSection(JwtOptions.SectionName))
     .ValidateDataAnnotations()
-    .Validate(options => Encoding.UTF8.GetByteCount(options.Key) >= 32, "Jwt:Key must contain at least 32 UTF-8 bytes.")
-    .Validate(options => Uri.TryCreate(options.Issuer, UriKind.Absolute, out _), "Jwt:Issuer must be a valid absolute URI.")
-    .Validate(options => !string.IsNullOrWhiteSpace(options.Audience), "Jwt:Audience is required.")
+    .Validate(
+        options =>
+            !string.IsNullOrWhiteSpace(options.Key) &&
+            Encoding.UTF8.GetByteCount(options.Key) >= 32,
+        "Jwt:Key must contain at least 32 UTF-8 bytes.")
+    .Validate(
+        options => 
+            Uri.TryCreate(options.Issuer, UriKind.Absolute, out _), 
+        "Jwt:Issuer must be a valid absolute URI.")
+    .Validate(
+        options => 
+            !string.IsNullOrWhiteSpace(options.Audience), 
+        "Jwt:Audience is required.")
+    .ValidateOnStart();
+
+// Refresh-token configuration validation
+builder.Services
+    .AddOptions<RefreshTokenOptions>()
+    .Bind(configuration.GetSection(RefreshTokenOptions.SectionName))
+    .ValidateDataAnnotations()
     .ValidateOnStart();
 
 // JWT Authentication
@@ -116,8 +133,12 @@ builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 // Request rate limiting
 builder.Services.AddApiRateLimiting(configuration);
 
+// Time provider
+builder.Services.AddSingleton(TimeProvider.System);
+
 // Application Services
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<ICronExpressionValidator, CronExpressionValidator>();
@@ -180,7 +201,7 @@ else
 
 app.UseHttpsRedirection();
 
-// Auth middleware
+// Authentication, rate limiting, and authorization
 app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();

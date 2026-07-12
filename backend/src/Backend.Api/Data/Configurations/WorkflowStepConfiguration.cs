@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Backend.Api.Data.Configurations
 {
-    public sealed class WorkflowStepConfiguration
+    public sealed class WorkflowStepConfiguration : IEntityTypeConfiguration<WorkflowStep>
     {
         public void Configure(EntityTypeBuilder<WorkflowStep> builder)
         {

@@ -16,7 +16,10 @@ namespace Backend.Api.Controllers
         
         private readonly IAuthService _auth;
 
-        public AuthController(IAuthService auth) => _auth = auth;
+        public AuthController(IAuthService auth)
+        {
+            _auth = auth;
+        }
 
         [AllowAnonymous]
         [HttpPost("register")]
@@ -48,6 +51,42 @@ namespace Backend.Api.Controllers
             }
 
             return Ok(result.Data);
+        }
+
+        [AllowAnonymous]
+        [HttpPost("refresh")]
+        [EnableRateLimiting(RateLimitingPolicies.TokenRefresh)]
+        [RequestSizeLimit(AuthenticationRequestLimitBytes)]
+        public async Task<ActionResult<AuthResponseDto>> Refresh([FromBody] RefreshTokenRequestDto dto, CancellationToken ct)
+        {
+            var result = await _auth.RefreshAsync(dto, ct);
+
+            if (!result.Succeeded)
+            {
+                return Unauthorized(new { errors = result.Errors });
+            }
+
+            return Ok(result.Data);
+        }
+
+        [HttpPost("logout")]
+        [EnableRateLimiting(RateLimitingPolicies.TokenRefresh)]
+        [RequestSizeLimit(AuthenticationRequestLimitBytes)]
+        public async Task<IActionResult> Logout([FromBody] RevokeRefreshTokenRequestDto dto, CancellationToken ct)
+        {
+            var result = await _auth.RevokeRefreshTokenAsync(User, dto, ct);
+
+            if (!result.Succeeded)
+            {
+                if (result.Errors.Any(error => error.Code == "unauthorized"))
+                {
+                    return Unauthorized(new { errors = result.Errors });
+                }
+
+                return BadRequest(new { errors = result.Errors });
+            }
+
+            return NoContent();
         }
 
         [HttpGet("me")]

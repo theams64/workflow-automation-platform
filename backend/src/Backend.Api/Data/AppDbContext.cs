@@ -15,6 +15,7 @@ namespace Backend.Api.Data
         public DbSet<WorkflowStep> WorkflowStep { get; set; }
         public DbSet<WorkflowRun> WorkflowRun { get; set; }
         public DbSet<StepRun> StepRun { get; set; }
+        public DbSet<RefreshToken> RefreshToken => Set<RefreshToken>();
 
         protected override void OnModelCreating(ModelBuilder builder)
         {

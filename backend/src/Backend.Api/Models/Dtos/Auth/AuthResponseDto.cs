@@ -2,7 +2,9 @@
 {
     public sealed class AuthResponseDto
     {
-        public string AccessToken { get; set; } = default!;
-        public int ExpiresInSeconds { get; set; }
+        public string AccessToken { get; init; } = string.Empty;
+        public int ExpiresInSeconds { get; init; }
+        public string RefreshToken { get; init; } = string.Empty;
+        public DateTimeOffset RefreshTokenExpiresAtUtc { get; init; }
     }
 }

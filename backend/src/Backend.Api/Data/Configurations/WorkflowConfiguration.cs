@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Backend.Api.Data.Configurations
 {
-    public sealed class WorkflowConfiguration
+    public sealed class WorkflowConfiguration : IEntityTypeConfiguration<Workflow>
     {
         public void Configure(EntityTypeBuilder<Workflow> builder)
         {
@@ -20,7 +20,6 @@ namespace Backend.Api.Data.Configurations
                 .HasMaxLength(200);
 
             builder.Property(w => w.CronExpression)
-                .IsRequired()
                 .HasMaxLength(100);
 
             builder.Property(w => w.IsEnabled)
