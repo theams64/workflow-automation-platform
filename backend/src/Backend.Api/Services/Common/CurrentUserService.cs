@@ -21,7 +21,7 @@ namespace Backend.Api.Services.Common
                 throw new UnauthorizedAccessException("Authenticated user ID was not found");
             }
 
-            if (!int.TryParse(userIdValue, out var userId))
+            if (!int.TryParse(userIdValue, out var userId) || userId <= 0)
             {
                 throw new UnauthorizedAccessException("Authenticated user ID is invalid");
             }

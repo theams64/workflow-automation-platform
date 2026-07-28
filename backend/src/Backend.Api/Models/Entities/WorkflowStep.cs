@@ -1,4 +1,5 @@
 ﻿using Backend.Api.Models.Entities.Common;
+using Backend.Api.Models.Validation;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -15,10 +16,10 @@ public class WorkflowStep : IAuditable
     [Column("workflow_id")]
     public required int WorkflowID { get; set; }
 
-    [ForeignKey(nameof(WorkflowID))]
     public Workflow? Workflow {  get; set; }
 
     [Column("step_type")]
+    [MaxLength(WorkflowLimits.StepTypeMaxLength)]
     public required string StepType { get; set; }
 
     [Column("config_json")]

@@ -2,16 +2,26 @@
 using Backend.Api.Models.Dtos.Workflow;
 using Backend.Api.Models.Dtos.WorkflowStep;
 using Backend.Api.Models.Entities;
+using Backend.Api.Models.Validation;
 using Backend.Api.Services.Common;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Internal;
+using Npgsql;
 
 namespace Backend.Api.Services.Workflow
 {
     public sealed class WorkflowService : IWorkflowService
     {
-        private static readonly ServiceError UnauthorizedError =
-            new("auth.unauthorized", "The current user could not be determined.");
+        private const string WorkflowNameConstraint = "IX_workflow_user_id_name";
+
+        private const string WorkflowStepOrderConstraint = "IX_workflow_step_workflow_id_step_order";
+
+        private static readonly HashSet<string> AllowedTriggerTypes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "manual",
+            "schedule"
+        };
+
+        private static readonly ServiceError UnauthorizedError = new("auth.unauthorized", "The current user could not be determined.");
 
         private readonly AppDbContext _dbContext;
         private readonly ICurrentUserService _currentUserService;
@@ -29,12 +39,12 @@ namespace Backend.Api.Services.Workflow
         public async Task<ServiceResult<WorkflowResponseDto>> CreateWorkflowAsync(CreateWorkflowRequestDto request, CancellationToken cancellationToken = default)
         {
             var userIdResult = TryGetCurrentUserId();
+
             if (!userIdResult.Succeeded)
             {
                 return ServiceResult<WorkflowResponseDto>.Fail(userIdResult.Errors);
             }
 
-            var userId = userIdResult.Data;
             var validationErrors = ValidateWorkflowRequest(request);
 
             if (validationErrors.Count > 0)
@@ -42,65 +52,96 @@ namespace Backend.Api.Services.Workflow
                 return ServiceResult<WorkflowResponseDto>.Fail(validationErrors);
             }
 
+            var userId = userIdResult.Data;
+            var normalizedName = request.Name.Trim();
+
             var nameConflict = await _dbContext.Workflow
-                .AnyAsync(
-                    w => w.Name == request.Name && w.UserID == userId,
-                    cancellationToken);
+                .AsNoTracking()
+                .AnyAsync(workflow => workflow.UserID == userId && workflow.Name == normalizedName, cancellationToken);
 
             if (nameConflict)
             {
-                return ServiceResult<WorkflowResponseDto>.Fail(
-                    new ServiceError("workflow.duplicate_name",
-                    $"A workflow with name {request.Name.Trim()} already exists for this user."));
+                return DuplicateWorkflowNameFailure();
             }
 
             var workflow = new Models.Entities.Workflow
             {
                 UserID = userId,
-                Name = request.Name.Trim(),
-                IsEnabled = request.IsEnabled,
-                TriggerType = request.TriggerType,
-                CronExpression = request.CronExpression                
+                Name = normalizedName,
+                IsEnabled = request.IsEnabled!.Value,
+                TriggerType = NormalizeTriggerType(request.TriggerType),
+                CronExpression = NormalizeOptionalValue(request.CronExpression)
             };
 
             _dbContext.Workflow.Add(workflow);
-            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            try
+            {
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception, WorkflowNameConstraint))
+            {
+                return DuplicateWorkflowNameFailure();
+            }
 
             return ServiceResult<WorkflowResponseDto>.Ok(MapWorkflowResponse(workflow));
         }
 
-        public async Task<ServiceResult<List<WorkflowResponseDto>>> GetWorkflowsAsync(CancellationToken cancellationToken = default)
+        public async Task<ServiceResult<WorkflowListResponseDto>> GetWorkflowsAsync(WorkflowListRequestDto request, CancellationToken cancellationToken = default)
         {
             var userIdResult = TryGetCurrentUserId();
+
             if (!userIdResult.Succeeded)
             {
-                return ServiceResult<List<WorkflowResponseDto>>.Fail(userIdResult.Errors);
+                return ServiceResult<WorkflowListResponseDto>.Fail(userIdResult.Errors);
+            }
+
+            var validationErrors = ValidatePaginationRequest(request);
+
+            if (validationErrors.Count > 0)
+            {
+                return ServiceResult<WorkflowListResponseDto>.Fail(validationErrors);
             }
 
             var userId = userIdResult.Data;
 
-            var workflows = await _dbContext.Workflow
+            var ownedWorkflows = _dbContext.Workflow
                 .AsNoTracking()
-                .Where(w => w.UserID == userId)
-                .OrderBy(w => w.ID)
-                .Select(w => new WorkflowResponseDto
+                .Where(workflow => workflow.UserID == userId);
+
+            var totalCount = await ownedWorkflows.CountAsync(cancellationToken);
+
+            var skip = checked((request.Page - 1) * request.PageSize);
+
+            var workflows = await ownedWorkflows
+                .OrderBy(workflow => workflow.ID)
+                .Skip(skip)
+                .Take(request.PageSize)
+                .Select(workflow => new WorkflowResponseDto
                 {
-                    Id = w.ID,
-                    Name = w.Name,
-                    IsEnabled = w.IsEnabled,
-                    TriggerType = w.TriggerType,
-                    CronExpression = w.CronExpression,
-                    CreatedAt = w.CreatedAt,
-                    UpdatedAt = w.UpdatedAt
+                    Id = workflow.ID,
+                    Name = workflow.Name,
+                    IsEnabled = workflow.IsEnabled,
+                    TriggerType = workflow.TriggerType,
+                    CronExpression = workflow.CronExpression,
+                    CreatedAt = workflow.CreatedAt,
+                    UpdatedAt = workflow.UpdatedAt
                 })
                 .ToListAsync(cancellationToken);
 
-            return ServiceResult<List<WorkflowResponseDto>>.Ok(workflows);
+            return ServiceResult<WorkflowListResponseDto>.Ok(new WorkflowListResponseDto
+            {
+                Items = workflows,
+                Page = request.Page,
+                PageSize = request.PageSize,
+                TotalCount = totalCount
+            });
         }
 
         public async Task<ServiceResult<WorkflowDetailResponseDto>> GetWorkflowByIdAsync(int workflowId, CancellationToken cancellationToken = default)
         {
             var userIdResult = TryGetCurrentUserId();
+
             if (!userIdResult.Succeeded)
             {
                 return ServiceResult<WorkflowDetailResponseDto>.Fail(userIdResult.Errors);
@@ -110,44 +151,53 @@ namespace Backend.Api.Services.Workflow
 
             var workflow = await _dbContext.Workflow
                 .AsNoTracking()
-                .Include(w => w.WorkflowSteps)
-                .FirstOrDefaultAsync(
-                    w => w.ID == workflowId && w.UserID == userId,
-                    cancellationToken);
+                .Where(candidate => candidate.ID == workflowId && candidate.UserID == userId)
+                .Select(candidate => new WorkflowDetailResponseDto
+                {
+                    Id = candidate.ID,
+                    Name = candidate.Name,
+                    IsEnabled = candidate.IsEnabled,
+                    TriggerType = candidate.TriggerType,
+                    CronExpression = candidate.CronExpression,
+                    CreatedAt = candidate.CreatedAt,
+                    UpdatedAt = candidate.UpdatedAt
+                })
+                .FirstOrDefaultAsync(cancellationToken);
 
-            if (workflow == null)
+            if (workflow is null)
             {
-                return ServiceResult<WorkflowDetailResponseDto>.Fail(
-                    new ServiceError("workflow.not_found", "Workflow was not found"));
+                return WorkflowNotFoundFailure<WorkflowDetailResponseDto>();
             }
 
-            var response = new WorkflowDetailResponseDto
-            {
-                Id = workflowId,
-                Name = workflow.Name,
-                IsEnabled = workflow.IsEnabled,
-                TriggerType = workflow.TriggerType,
-                CronExpression = workflow.CronExpression,
-                CreatedAt = workflow.CreatedAt,
-                UpdatedAt = workflow.UpdatedAt,
-                Steps = workflow.WorkflowSteps
-                    .OrderBy(s => s.StepOrder)
-                    .Select(MapWorkflowStepResponse)
-                    .ToList()
-            };
+            workflow.Steps = await _dbContext.WorkflowStep
+                .AsNoTracking()
+                .Where(step => step.WorkflowID == workflowId)
+                .OrderBy(step => step.StepOrder)
+                .Take(WorkflowLimits.MaxStepsPerWorkflow)
+                .Select(step => new WorkflowStepResponseDto 
+                {
+                    Id = step.ID,
+                    WorkflowId = step.WorkflowID,
+                    StepType = step.StepType,
+                    ConfigJson = step.ConfigJson,
+                    StepOrder = step.StepOrder,
+                    CreatedAt = step.CreatedAt,
+                    UpdatedAt = step.UpdatedAt
+                })
+                .ToListAsync(cancellationToken);
 
-            return ServiceResult<WorkflowDetailResponseDto>.Ok(response);
+            return ServiceResult<WorkflowDetailResponseDto>.Ok(workflow);
         }
 
         public async Task<ServiceResult<WorkflowResponseDto>> UpdateWorkflowAsync(int workflowId, UpdateWorkflowRequestDto request, CancellationToken cancellationToken = default)
         {
             var userIdResult = TryGetCurrentUserId();
+
             if (!userIdResult.Succeeded)
             {
                 return ServiceResult<WorkflowResponseDto>.Fail(userIdResult.Errors);
             }
 
-            var userId = userIdResult.Data;
             var validationErrors = ValidateWorkflowRequest(request);
 
             if (validationErrors.Count > 0)
@@ -155,23 +205,39 @@ namespace Backend.Api.Services.Workflow
                 return ServiceResult<WorkflowResponseDto>.Fail(validationErrors);
             }
 
-            var workflow = await _dbContext.Workflow
-                .FirstOrDefaultAsync(
-                    w => w.ID == workflowId && w.UserID == userId,
-                    cancellationToken);
+            var userId = userIdResult.Data;
+            var normalizedName = request.Name.Trim();
 
-            if (workflow == null)
+            var workflow = await _dbContext.Workflow
+                .FirstOrDefaultAsync(candidate => candidate.ID == workflowId && candidate.UserID == userId, cancellationToken);
+
+            if (workflow is null)
             {
-                return ServiceResult<WorkflowResponseDto>.Fail(
-                    new ServiceError("workflow.not_found", "Workflow was not found."));
+                return WorkflowNotFoundFailure<WorkflowResponseDto>();
             }
 
-            workflow.Name = request.Name.Trim();
-            workflow.IsEnabled = request.IsEnabled;
-            workflow.TriggerType = request.TriggerType;
-            workflow.CronExpression = request.CronExpression;
+            var nameConflict = await _dbContext.Workflow
+                .AsNoTracking()
+                .AnyAsync(candidate => candidate.UserID == userId && candidate.ID != workflowId && candidate.Name == normalizedName, cancellationToken);
 
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            if (nameConflict)
+            {
+                return DuplicateWorkflowNameFailure();
+            }
+
+            workflow.Name = normalizedName;
+            workflow.IsEnabled = request.IsEnabled!.Value;
+            workflow.TriggerType = NormalizeTriggerType(request.TriggerType);
+            workflow.CronExpression = NormalizeOptionalValue(request.CronExpression);
+
+            try
+            {
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception, WorkflowNameConstraint))
+            {
+                return DuplicateWorkflowNameFailure();
+            }
 
             return ServiceResult<WorkflowResponseDto>.Ok(MapWorkflowResponse(workflow));
         }
@@ -179,6 +245,7 @@ namespace Backend.Api.Services.Workflow
         public async Task<ServiceResult<bool>> DeleteWorkflowAsync(int workflowId, CancellationToken cancellationToken = default)
         {
             var userIdResult = TryGetCurrentUserId();
+
             if (!userIdResult.Succeeded)
             {
                 return ServiceResult<bool>.Fail(userIdResult.Errors);
@@ -187,14 +254,11 @@ namespace Backend.Api.Services.Workflow
             var userId = userIdResult.Data;
 
             var workflow = await _dbContext.Workflow
-                .FirstOrDefaultAsync(
-                    w => w.ID == workflowId && w.UserID == userId,
-                    cancellationToken);
+                .FirstOrDefaultAsync(candidate => candidate.ID == workflowId && candidate.UserID == userId,cancellationToken);
 
-            if (workflow == null)
+            if (workflow is null)
             {
-                return ServiceResult<bool>.Fail(
-                    new ServiceError("workflow.not_found", "Workflow was not found"));
+                return WorkflowNotFoundFailure<bool>();
             }
 
             _dbContext.Workflow.Remove(workflow);
@@ -205,38 +269,27 @@ namespace Backend.Api.Services.Workflow
 
         public async Task<ServiceResult<WorkflowStepListResponseDto>> GetWorkflowStepsAsync(int workflowId, CancellationToken cancellationToken = default)
         {
-            var userIdResult = TryGetCurrentUserId();
-            if (!userIdResult.Succeeded)
+            var ownershipResult = await VerifyWorkflowOwnershipAsync(workflowId, cancellationToken);
+
+            if (!ownershipResult.Succeeded)
             {
-                return ServiceResult<WorkflowStepListResponseDto>.Fail(userIdResult.Errors);
-            }
-
-            var userId = userIdResult.Data;
-
-            var workflow = await _dbContext.Workflow
-                .FirstOrDefaultAsync(
-                    w => w.ID == workflowId && w.UserID == userId,
-                    cancellationToken);
-
-            if (workflow == null)
-            {
-                return ServiceResult<WorkflowStepListResponseDto>.Fail(
-                    new ServiceError("workflow.not_found", "Workflow was not found"));
+                return ServiceResult<WorkflowStepListResponseDto>.Fail(ownershipResult.Errors);
             }
 
             var steps = await _dbContext.WorkflowStep
                 .AsNoTracking()
-                .Where(s => s.WorkflowID == workflowId)
-                .OrderBy(s => s.StepOrder)
-                .Select(s => new WorkflowStepResponseDto
+                .Where(step => step.WorkflowID == workflowId)
+                .OrderBy(step => step.StepOrder)
+                .Take(WorkflowLimits.MaxStepsPerWorkflow)
+                .Select(step => new WorkflowStepResponseDto
                 {
-                    Id = s.ID,
-                    WorkflowId = s.WorkflowID,
-                    StepType = s.StepType,
-                    ConfigJson = s.ConfigJson,
-                    StepOrder = s.StepOrder,
-                    CreatedAt = s.CreatedAt,
-                    UpdatedAt = s.UpdatedAt
+                    Id = step.ID,
+                    WorkflowId = step.WorkflowID,
+                    StepType = step.StepType,
+                    ConfigJson = step.ConfigJson,
+                    StepOrder = step.StepOrder,
+                    CreatedAt = step.CreatedAt,
+                    UpdatedAt = step.UpdatedAt
                 })
                 .ToListAsync(cancellationToken);
 
@@ -249,140 +302,121 @@ namespace Backend.Api.Services.Workflow
 
         public async Task<ServiceResult<WorkflowStepListResponseDto>> CreateWorkflowStepsAsync(int workflowId, SaveWorkflowStepsRequestDto request, CancellationToken cancellationToken = default)
         {
-            var userIdResult = TryGetCurrentUserId();
-            if (!userIdResult.Succeeded)
-            {
-                return ServiceResult<WorkflowStepListResponseDto>.Fail(userIdResult.Errors);
-            }
+            var validationErrors = ValidateSaveWorkflowStepsRequest(request, allowEmptyCollection: false);
 
-            var userId = userIdResult.Data;
-
-            var validationErrors = ValidateSaveWorkflowStepsRequest(request);
-            if (validationErrors.Count() > 0)
+            if (validationErrors.Count > 0)
             {
                 return ServiceResult<WorkflowStepListResponseDto>.Fail(validationErrors);
             }
 
-            var workflow = await _dbContext.Workflow
-                .Include(w => w.WorkflowSteps)
-                .FirstOrDefaultAsync(
-                    w => w.ID == workflowId && w.UserID == userId,
-                    cancellationToken);
+            var ownershipResult = await VerifyWorkflowOwnershipAsync(workflowId, cancellationToken);
 
-            if (workflow == null)
+            if (!ownershipResult.Succeeded)
             {
-                return ServiceResult<WorkflowStepListResponseDto>.Fail(
-                    new ServiceError("workflow.not_found", "Workflow was not found"));
+                return ServiceResult<WorkflowStepListResponseDto>.Fail(ownershipResult.Errors);
             }
 
-            if (workflow.WorkflowSteps.Any())
+            var stepsAlreadyExist = await _dbContext.WorkflowStep
+                .AsNoTracking()
+                .AnyAsync(step => step.WorkflowID == workflowId, cancellationToken);
+
+            if (stepsAlreadyExist)
             {
-                return ServiceResult<WorkflowStepListResponseDto>.Fail(
-                    new ServiceError("workflow_steps.already_exist", "Steps already exist for this workflow. Use PUT to replace them."));
+                return StepsAlreadyExistFailure();
             }
 
-            var entities = BuildStepEntities(workflowId, request);
-
+            var entities = BuildStepEntities(workflowId, request.Steps);
             _dbContext.WorkflowStep.AddRange(entities);
-            await _dbContext.SaveChangesAsync(cancellationToken);
 
-            var response = entities
-                .OrderBy(s => s.StepOrder)
-                .Select(MapWorkflowStepResponse)
-                .ToList();
-
-            return ServiceResult<WorkflowStepListResponseDto>.Ok(new WorkflowStepListResponseDto
+            try
             {
-                WorkflowId = workflowId,
-                Steps = response
-            });
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception, WorkflowStepOrderConstraint))
+            {
+                return StepsAlreadyExistFailure();
+            }
+
+            return ServiceResult<WorkflowStepListResponseDto>.Ok(BuildStepListResponse(workflowId, entities));
         }
 
         public async Task<ServiceResult<WorkflowStepListResponseDto>> ReplaceWorkflowStepsAsync(int workflowId, SaveWorkflowStepsRequestDto request, CancellationToken cancellationToken = default)
         {
-            var userIdResult = TryGetCurrentUserId();
-            if (!userIdResult.Succeeded)
-            {
-                return ServiceResult<WorkflowStepListResponseDto>.Fail(userIdResult.Errors);
-            }
+            var validationErrors = ValidateSaveWorkflowStepsRequest(request, allowEmptyCollection: true);
 
-            var userId = userIdResult.Data;
-
-            var validationErrors = ValidateSaveWorkflowStepsRequest(request);
-            if (validationErrors.Count() > 0)
+            if (validationErrors.Count > 0)
             {
                 return ServiceResult<WorkflowStepListResponseDto>.Fail(validationErrors);
             }
 
-            var workflow = await _dbContext.Workflow
-                .FirstOrDefaultAsync(
-                    w => w.ID == workflowId && w.UserID == userId,
-                    cancellationToken);
+            var ownershipResult = await VerifyWorkflowOwnershipAsync(workflowId, cancellationToken);
 
-            if (workflow == null)
+            if (!ownershipResult.Succeeded)
             {
-                return ServiceResult<WorkflowStepListResponseDto>.Fail(
-                    new ServiceError("workflow.not_found", "Workflow was not found"));
+                return ServiceResult<WorkflowStepListResponseDto>.Fail(ownershipResult.Errors);
             }
 
-            var existingSteps = await _dbContext.WorkflowStep
-                .Where(s => s.WorkflowID == workflowId)
-                .ToListAsync(cancellationToken);
+            var replacementSteps = BuildStepEntities(workflowId, request.Steps);
 
-            if (existingSteps.Count() > 0)
+            await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+            try
             {
-                _dbContext.WorkflowStep.RemoveRange(existingSteps);
+                await _dbContext.WorkflowStep
+                    .Where(step => step.WorkflowID == workflowId)
+                    .ExecuteDeleteAsync(cancellationToken);
+
+                if (replacementSteps.Count > 0)
+                {
+                    _dbContext.WorkflowStep.AddRange(replacementSteps);
+
+                    await _dbContext.SaveChangesAsync(cancellationToken);
+                }
+
+                await transaction.CommitAsync(cancellationToken);
+            }
+            catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception, WorkflowStepOrderConstraint))
+            {
+                await transaction.RollbackAsync(cancellationToken);
+
+                return ServiceResult<WorkflowStepListResponseDto>.Fail(new ServiceError("workflow_steps.conflict", "The workflow steps changed concurrently. Reload and try again."));
             }
 
-            var newSteps = BuildStepEntities(workflowId, request);
-            if (newSteps.Count() > 0)
-            {
-                _dbContext.WorkflowStep.AddRange(newSteps);
-            }
-
-            await _dbContext.SaveChangesAsync(cancellationToken);
-
-            var response = newSteps
-                .OrderBy(s => s.StepOrder)
-                .Select(MapWorkflowStepResponse)
-                .ToList();
-
-            return ServiceResult<WorkflowStepListResponseDto>.Ok(new WorkflowStepListResponseDto
-            {
-                WorkflowId = workflowId,
-                Steps = response
-            });
+            return ServiceResult<WorkflowStepListResponseDto>.Ok(BuildStepListResponse(workflowId, replacementSteps));
         }
 
         public async Task<ServiceResult<bool>> DeleteWorkflowStepsAsync(int workflowId, CancellationToken cancellationToken = default)
         {
+            var ownershipResult = await VerifyWorkflowOwnershipAsync(workflowId, cancellationToken);
+
+            if (!ownershipResult.Succeeded)
+            {
+                return ServiceResult<bool>.Fail(ownershipResult.Errors);
+            }
+
+            await _dbContext.WorkflowStep
+                .Where(step => step.WorkflowID == workflowId)
+                .ExecuteDeleteAsync(cancellationToken);
+
+            return ServiceResult<bool>.Ok(true);
+        }
+
+        private async Task<ServiceResult<bool>> VerifyWorkflowOwnershipAsync(int workflowId, CancellationToken cancellationToken)
+        {
             var userIdResult = TryGetCurrentUserId();
+
             if (!userIdResult.Succeeded)
             {
                 return ServiceResult<bool>.Fail(userIdResult.Errors);
             }
 
-            var userId = userIdResult.Data;
+            var exists = await _dbContext.Workflow
+                .AsNoTracking()
+                .AnyAsync(workflow => workflow.ID == workflowId && workflow.UserID == userIdResult.Data, cancellationToken);
 
-            var workflow = await _dbContext.Workflow
-                .FirstOrDefaultAsync(
-                    w => w.ID == workflowId && w.UserID == userId,
-                    cancellationToken);
-
-            if (workflow == null)
+            if (!exists)
             {
-                return ServiceResult<bool>.Fail(
-                    new ServiceError("workflow.not_found", "Workflow was not found"));
-            }
-
-            var existingSteps = await _dbContext.WorkflowStep
-                .Where(s => s.WorkflowID == workflowId)
-                .ToListAsync(cancellationToken);
-
-            if (existingSteps.Count() > 0)
-            {
-                _dbContext.WorkflowStep.RemoveRange(existingSteps);
-                await _dbContext.SaveChangesAsync(cancellationToken);
+                return WorkflowNotFoundFailure<bool>();
             }
 
             return ServiceResult<bool>.Ok(true);
@@ -392,10 +426,9 @@ namespace Backend.Api.Services.Workflow
         {
             try
             {
-                var userId = _currentUserService.GetUserId();
-                return ServiceResult<int>.Ok(userId);
+                return ServiceResult<int>.Ok(_currentUserService.GetUserId());
             }
-            catch
+            catch (UnauthorizedAccessException)
             {
                 return ServiceResult<int>.Fail(UnauthorizedError);
             }
@@ -403,83 +436,170 @@ namespace Backend.Api.Services.Workflow
 
         private List<ServiceError> ValidateWorkflowRequest(CreateWorkflowRequestDto request)
         {
-            var errors = new List<ServiceError>();
-
-            if (string.IsNullOrWhiteSpace(request.Name))
-            {
-                errors.Add(new ServiceError("workflow.name_required", "Workflow name is required."));
-            }
-
-            if(!string.IsNullOrWhiteSpace(request.CronExpression) && !_cronExpressionValidator.IsValid(request.CronExpression.Trim()))
-            {
-                errors.Add(new ServiceError("workflow.cron_invalid", "Cron expression is invalid."));
-            }
-
-            return errors;
+            return ValidateWorkflowValues(request.Name, request.IsEnabled, request.TriggerType, request.CronExpression);
         }
 
         private List<ServiceError> ValidateWorkflowRequest(UpdateWorkflowRequestDto request)
         {
+            return ValidateWorkflowValues(request.Name, request.IsEnabled, request.TriggerType, request.CronExpression);
+        }
+
+        private List<ServiceError> ValidateWorkflowValues(string? name, bool? isEnabled, string? triggerType, string? cronExpression)
+        {
             var errors = new List<ServiceError>();
 
-            if (string.IsNullOrWhiteSpace(request.Name))
+            if (string.IsNullOrWhiteSpace(name))
             {
                 errors.Add(new ServiceError("workflow.name_required", "Workflow name is required."));
             }
-
-            if (!string.IsNullOrWhiteSpace(request.CronExpression) && !_cronExpressionValidator.IsValid(request.CronExpression.Trim()))
+            else if (name.Trim().Length > WorkflowLimits.NameMaxLength)
             {
-                errors.Add(new ServiceError("workflow.cron_invalid", "Cron expression is invalid."));
+                errors.Add(new ServiceError("workflow.name_too_long", $"Workflow name cannot exceed {WorkflowLimits.NameMaxLength} characters."));
+            }
+
+            if (isEnabled is null)
+            {
+                errors.Add(new ServiceError("workflow.is_enabled_required", "IsEnabled is required."));
+            }
+
+            var normalizedTriggerType = NormalizeOptionalValue(triggerType);
+
+            if (normalizedTriggerType is not null)
+            {
+                if (normalizedTriggerType.Length > WorkflowLimits.TriggerTypeMaxLength)
+                {
+                    errors.Add(new ServiceError("workflow.trigger_type_too_long", $"Trigger type cannot exceed {WorkflowLimits.TriggerTypeMaxLength} characters."));
+                }
+                else if (!AllowedTriggerTypes.Contains(normalizedTriggerType))
+                {
+                    errors.Add(new ServiceError("workflow.trigger_type_invalid", "Trigger type must be either 'manual' or 'schedule'."));
+                }
+            }
+
+            var normalizedCron = NormalizeOptionalValue(cronExpression);
+
+            if (normalizedCron is not null)
+            {
+                if (normalizedCron.Length > WorkflowLimits.CronExpressionMaxLength)
+                {
+                    errors.Add(new ServiceError("workflow.cron_too_long", $"Cron expression cannot exceed {WorkflowLimits.CronExpressionMaxLength} characters."));
+                }
+                else if (!_cronExpressionValidator.IsValid(normalizedCron))
+                {
+                    errors.Add(new ServiceError("workflow.cron_invalid", "Cron expression is invalid."));
+                }
             }
 
             return errors;
         }
 
-        private List<ServiceError> ValidateSaveWorkflowStepsRequest(SaveWorkflowStepsRequestDto request)
+        private static List<ServiceError> ValidatePaginationRequest(WorkflowListRequestDto request)
         {
             var errors = new List<ServiceError>();
 
-            var requestSteps = request.Steps ?? new List<WorkflowStepItemDto>();
-
-            for (var i = 0; i < requestSteps.Count; i++)
+            if (request.Page < 1)
             {
-                var step = requestSteps[i];
+                errors.Add(new ServiceError("pagination.page_invalid", "Page must be at least 1."));
+            }
+
+            if (request.PageSize < 1 || request.PageSize > WorkflowLimits.MaxPageSize)
+            {
+                errors.Add(new ServiceError("pagination.page_size_invalid", $"Page size must be between 1 and {WorkflowLimits.MaxPageSize}."));
+            }
+
+            return errors;
+        }
+
+        private List<ServiceError> ValidateSaveWorkflowStepsRequest(SaveWorkflowStepsRequestDto request, bool allowEmptyCollection)
+        {
+            var errors = new List<ServiceError>();
+
+            if (request.Steps is null)
+            {
+                errors.Add(new ServiceError("workflow_steps.collection_required", "The steps collection is required."));
+
+                return errors;
+            }
+
+            if (!allowEmptyCollection && request.Steps.Count == 0)
+            {
+                errors.Add(new ServiceError("workflow_steps.collection_empty", "At least one workflow step is required."));
+            }
+
+            if (request.Steps.Count > WorkflowLimits.MaxStepsPerWorkflow)
+            {
+                errors.Add(new ServiceError("workflow_steps.too_many", $"A workflow cannot contain more than {WorkflowLimits.MaxStepsPerWorkflow} steps."));
+
+                return errors;
+            }
+
+            for (var i = 0; i < request.Steps.Count; i++)
+            {
+                var step = request.Steps[i];
                 var stepNumber = i + 1;
 
                 if (string.IsNullOrWhiteSpace(step.StepType))
                 {
                     errors.Add(new ServiceError("workflow_step.type_required", $"Step {stepNumber}: type is required."));
                 }
-
-                if (string.IsNullOrWhiteSpace(step.ConfigJson) || !_jsonValidationHelper.IsValidJson(step.ConfigJson.Trim()))
+                else if (step.StepType.Trim().Length > WorkflowLimits.StepTypeMaxLength)
                 {
-                    errors.Add(new ServiceError("workflow_step.config_required", $"Step {stepNumber}: config must be valid JSON."));
+                    errors.Add(new ServiceError("workflow_step.type_too_long", $"Step {stepNumber}: type cannot exceed {WorkflowLimits.StepTypeMaxLength} characters."));
+                }
+
+                if (string.IsNullOrWhiteSpace(step.ConfigJson))
+                {
+                    errors.Add(new ServiceError("workflow_step.config_required", $"Step {stepNumber}: configuration is required."));
+
+                    continue;
+                }
+
+                if (step.ConfigJson.Length > WorkflowLimits.ConfigJsonMaxLength)
+                {
+                    errors.Add(new ServiceError("workflow_step.config_too_large", $"Step {stepNumber}: configuration cannot exceed {WorkflowLimits.ConfigJsonMaxLength} characters."));
+
+                    continue;
+                }
+
+                if (!_jsonValidationHelper.IsValidJson(step.ConfigJson.Trim()))
+                {
+                    errors.Add(new ServiceError("workflow_step.config_invalid", $"Step {stepNumber}: configuration must be valid JSON."));
                 }
             }
-            
+
             return errors;
         }
 
-        private static List<WorkflowStep> BuildStepEntities(int workflowId, SaveWorkflowStepsRequestDto request)
+        private static List<WorkflowStep> BuildStepEntities(int workflowId, IReadOnlyList<WorkflowStepItemDto> requestSteps)
         {
-            var steps = new List<WorkflowStep>();
-
-            var requestSteps = request.Steps ?? new List<WorkflowStepItemDto>();
+            var steps = new List<WorkflowStep>(requestSteps.Count);
 
             for (var i = 0; i < requestSteps.Count; i++)
             {
-                var step = requestSteps[i];
+                var requestStep = requestSteps[i];
 
                 steps.Add(new WorkflowStep
                 {
                     WorkflowID = workflowId,
                     StepOrder = i + 1,
-                    StepType = step.StepType.Trim(),
-                    ConfigJson = step.ConfigJson
+                    StepType = requestStep.StepType.Trim(),
+                    ConfigJson = requestStep.ConfigJson.Trim()
                 });
             }
 
             return steps;
+        }
+
+        private static WorkflowStepListResponseDto BuildStepListResponse(int workflowId, IEnumerable<WorkflowStep> steps)
+        {
+            return new WorkflowStepListResponseDto
+            {
+                WorkflowId = workflowId,
+                Steps = steps
+                    .OrderBy(step => step.StepOrder)
+                    .Select(MapWorkflowStepResponse)
+                    .ToList()
+            };
         }
 
         private static WorkflowResponseDto MapWorkflowResponse(Models.Entities.Workflow workflow)
@@ -508,6 +628,37 @@ namespace Backend.Api.Services.Workflow
                 CreatedAt = step.CreatedAt,
                 UpdatedAt = step.UpdatedAt
             };
+        }
+
+        private static string? NormalizeOptionalValue(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        private static string? NormalizeTriggerType(string? triggerType)
+        {
+            return NormalizeOptionalValue(triggerType)?.ToLowerInvariant();
+        }
+
+        private static bool IsUniqueConstraintViolation(DbUpdateException exception, string expectedConstraint)
+        {
+            return exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } postgresException 
+                && string.Equals(postgresException.ConstraintName, expectedConstraint, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static ServiceResult<WorkflowResponseDto> DuplicateWorkflowNameFailure()
+        {
+            return ServiceResult<WorkflowResponseDto>.Fail(new ServiceError("workflow.duplicate_name", "A workflow with this name already exists for the current user."));
+        }
+
+        private static ServiceResult<WorkflowStepListResponseDto> StepsAlreadyExistFailure()
+        {
+            return ServiceResult<WorkflowStepListResponseDto>.Fail(new ServiceError("workflow_steps.already_exist", "Steps already exist for this workflow. Use PUT to replace them."));
+        }
+
+        private static ServiceResult<T> WorkflowNotFoundFailure<T>()
+        {
+            return ServiceResult<T>.Fail(new ServiceError("workflow.not_found", "Workflow was not found."));
         }
     }
 }

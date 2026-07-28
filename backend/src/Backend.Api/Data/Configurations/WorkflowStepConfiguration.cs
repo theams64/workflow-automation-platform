@@ -1,4 +1,5 @@
 ﻿using Backend.Api.Models.Entities;
+using Backend.Api.Models.Validation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -12,9 +13,12 @@ namespace Backend.Api.Data.Configurations
 
             builder.HasKey(s => s.ID);
 
+            builder.Property(s => s.WorkflowID)
+                .IsRequired();
+
             builder.Property(s => s.StepType)
                 .IsRequired()
-                .HasMaxLength(100);
+                .HasMaxLength(WorkflowLimits.StepTypeMaxLength);
 
             builder.Property(s => s.ConfigJson)
                 .IsRequired()

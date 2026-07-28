@@ -21,7 +21,7 @@ public class StepRun
     public required int WorkflowStepID { get; set; }
 
     [ForeignKey(nameof(WorkflowStepID))]
-    public required WorkflowRun WorkflowStep { get; set; }
+    public required WorkflowStep? WorkflowStep { get; set; }
 
     [Column("status")]
     public string? Status { get; set; }

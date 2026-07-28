@@ -1,6 +1,7 @@
 ﻿using Backend.Api.Services.Common;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
+using Moq;
 using System.Security.Claims;
 
 namespace Backend.Api.Tests.Services
@@ -44,23 +45,60 @@ namespace Backend.Api.Tests.Services
                 .WithMessage("*Authenticated user ID was not found*");
         }
 
-        [Fact]
-        public void GetUserId_ShouldThrowUnauthorizedAccessException_WhenClaimIsInvalid()
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("not-an-integer")]
+        [InlineData("0")]
+        [InlineData("-1")]
+        public void GetUserId_ShouldThrow_WhenClaimIsInvalid(string? claimValue)
         {
-            var httpContextAccessor = new HttpContextAccessor
+            var claims = new List<Claim>();
+
+            if (claimValue is not null)
             {
-                HttpContext = new DefaultHttpContext
-                {
-                    User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "abc")], "TestAuth"))
-                }
+                claims.Add(new Claim(ClaimTypes.NameIdentifier, claimValue));
+            }
+
+            var context = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(claims, authenticationType: "Test"))
             };
 
-            var sut = new CurrentUserService(httpContextAccessor);
+            var accessor = new Mock<IHttpContextAccessor>();
 
-            Action act = () => sut.GetUserId();
+            accessor
+                .SetupGet(service => service.HttpContext)
+                .Returns(context);
 
-            act.Should().Throw<UnauthorizedAccessException>()
-                .WithMessage("*Authenticated user ID is invalid");
+            var sut = new CurrentUserService(accessor.Object);
+
+            var action = () => sut.GetUserId();
+
+            action.Should().Throw<UnauthorizedAccessException>();
+        }
+
+        [Fact]
+        public void GetUserId_ShouldReturnPositiveUserId()
+        {
+            var context = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                [
+                    new Claim(ClaimTypes.NameIdentifier, "42")
+                ],
+                authenticationType: "Test"))
+            };
+
+            var accessor = new Mock<IHttpContextAccessor>();
+
+            accessor
+                .SetupGet(service => service.HttpContext)
+                .Returns(context);
+
+            var sut = new CurrentUserService(accessor.Object);
+
+            sut.GetUserId().Should().Be(42);
         }
     }
 }

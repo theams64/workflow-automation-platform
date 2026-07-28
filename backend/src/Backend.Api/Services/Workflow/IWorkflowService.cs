@@ -7,7 +7,7 @@ namespace Backend.Api.Services.Workflow
     public interface IWorkflowService
     {
         Task<ServiceResult<WorkflowResponseDto>> CreateWorkflowAsync(CreateWorkflowRequestDto request, CancellationToken cancellationToken = default);
-        Task<ServiceResult<List<WorkflowResponseDto>>> GetWorkflowsAsync(CancellationToken cancellationToken = default);
+        Task<ServiceResult<WorkflowListResponseDto>> GetWorkflowsAsync(WorkflowListRequestDto request, CancellationToken cancellationToken = default);
         Task<ServiceResult<WorkflowDetailResponseDto>> GetWorkflowByIdAsync(int workflowId, CancellationToken cancellationToken = default);
         Task<ServiceResult<WorkflowResponseDto>> UpdateWorkflowAsync(int workflowId, UpdateWorkflowRequestDto request, CancellationToken cancellationToken = default);
         Task<ServiceResult<bool>> DeleteWorkflowAsync(int workflowId, CancellationToken cancellationToken = default);

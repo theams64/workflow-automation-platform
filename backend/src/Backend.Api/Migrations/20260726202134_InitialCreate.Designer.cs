@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Backend.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260711072459_InitialCreate")]
+    [Migration("20260726202134_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -266,8 +266,8 @@ namespace Backend.Api.Migrations
                         .HasColumnName("created_at");
 
                     b.Property<string>("CronExpression")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("cron_expression");
 
                     b.Property<bool>("IsEnabled")
@@ -281,7 +281,8 @@ namespace Backend.Api.Migrations
                         .HasColumnName("name");
 
                     b.Property<string>("TriggerType")
-                        .HasColumnType("text")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("trigger_type");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
@@ -562,7 +563,7 @@ namespace Backend.Api.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Backend.Api.Models.Entities.WorkflowRun", "WorkflowStep")
+                    b.HasOne("Backend.Api.Models.Entities.WorkflowStep", "WorkflowStep")
                         .WithMany()
                         .HasForeignKey("WorkflowStepID")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -586,7 +587,7 @@ namespace Backend.Api.Migrations
 
             modelBuilder.Entity("Backend.Api.Models.Entities.Workflow", b =>
                 {
-                    b.HasOne("Backend.Api.Models.Entities.UserProfile", "User")
+                    b.HasOne("Backend.Api.Models.Entities.ApplicationUser", "User")
                         .WithMany()
                         .HasForeignKey("UserID")
                         .OnDelete(DeleteBehavior.Cascade)

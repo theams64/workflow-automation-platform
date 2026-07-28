@@ -2,6 +2,7 @@
 using Backend.Api.Models.Dtos.Workflow;
 using Backend.Api.Models.Dtos.WorkflowStep;
 using Backend.Api.Models.Entities;
+using Backend.Api.Models.Validation;
 using Backend.Api.Tests.Common;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -68,10 +69,13 @@ namespace Backend.Api.Tests.Integration
 
             getAllResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-            var allWorkflows = await getAllResponse.Content.ReadFromJsonAsync<List<WorkflowResponseDto>>();
+            var allWorkflows = await getAllResponse.Content.ReadFromJsonAsync<WorkflowListResponseDto>();
 
             allWorkflows.Should().NotBeNull();
-            allWorkflows!.Should().ContainSingle(x => x.Id == createdWorkflow.Id);
+            allWorkflows!.Items.Should().ContainSingle(workflow => workflow.Id == createdWorkflow.Id);
+            allWorkflows.Page.Should().Be(1);
+            allWorkflows.PageSize.Should().Be(WorkflowLimits.DefaultPageSize);
+            allWorkflows.TotalCount.Should().Be(1);
 
             var getByIdResponse = await client.GetAsync($"/workflow/{createdWorkflow.Id}");
 
@@ -143,6 +147,86 @@ namespace Backend.Api.Tests.Integration
         }
 
         [Fact]
+        public async Task WorkflowOwnership_ShouldUseIdentityUserId_NotProfileId()
+        {
+            await _factory.ResetDatabaseAsync();
+
+            int firstProfileId;
+            int secondIdentityUserId;
+
+            using (var scope = _factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+                var firstUser = new ApplicationUser
+                {
+                    Id = 100,
+                    Email = "first@example.com",
+                    UserName = "first@example.com",
+                    NormalizedEmail = "FIRST@EXAMPLE.COM",
+                    NormalizedUserName = "FIRST@EXAMPLE.COM"
+                };
+
+                var secondUser = new ApplicationUser
+                {
+                    Id = 200,
+                    Email = "second@example.com",
+                    UserName = "second@example.com",
+                    NormalizedEmail = "SECOND@EXAMPLE.COM",
+                    NormalizedUserName = "SECOND@EXAMPLE.COM"
+                };
+
+                db.Users.AddRange(firstUser, secondUser);
+                await db.SaveChangesAsync();
+
+                var firstProfile = new UserProfile
+                {
+                    IdentityUserId = firstUser.Id,
+                    DisplayName = "First"
+                };
+
+                var secondProfile = new UserProfile
+                {
+                    IdentityUserId = secondUser.Id,
+                    DisplayName = "Second"
+                };
+
+                db.UserProfile.AddRange(firstProfile, secondProfile);
+
+                await db.SaveChangesAsync();
+
+                firstProfileId = firstProfile.Id;
+                secondIdentityUserId = secondUser.Id;
+
+                firstProfileId.Should().NotBe(secondIdentityUserId);
+            }
+
+            var client = _factory.CreateClient();
+
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", WorkflowTestHelpers.CreateJwtToken(secondIdentityUserId));
+
+            var response = await client.PostAsJsonAsync("/workflow", 
+                new CreateWorkflowRequestDto
+                {
+                    Name = "Identity Owned Workflow",
+                    IsEnabled = true,
+                    TriggerType = "manual"
+                });
+
+            response.StatusCode.Should().Be(HttpStatusCode.Created);
+
+            using var verificationScope = _factory.Services.CreateScope();
+
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var storedWorkflow = await verificationDb.Workflow.SingleAsync();
+
+            storedWorkflow.UserID.Should().Be(secondIdentityUserId);
+
+            storedWorkflow.UserID.Should().NotBe(firstProfileId);
+        }
+
+        [Fact]
         public async Task CreateWorkflowSteps_ThenGetWorkflowSteps_ShouldReturnOrderedSteps()
         {
             await _factory.ResetDatabaseAsync();
@@ -209,6 +293,405 @@ namespace Backend.Api.Tests.Integration
             getPayload!.Steps.Should().HaveCount(3);
             getPayload.Steps.Select(x => x.StepType).Should().Equal("http", "email", "delay");
             getPayload.Steps.Select(x => x.StepOrder).Should().Equal(1, 2, 3);
+        }
+
+        [Theory]
+        [InlineData("GET")]
+        [InlineData("POST")]
+        [InlineData("PUT")]
+        [InlineData("DELETE")]
+        public async Task WorkflowStepEndpoints_ShouldReturnNotFound_ForOtherUsersWorkflow(string method)
+        {
+            await _factory.ResetDatabaseAsync();
+
+            await SeedAuthenticatedUserAsync(userId: 1, email: "owner@example.com", displayName: "Owner");
+
+            int workflowId;
+
+            using (var scope = _factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+                var workflow = new Workflow
+                {
+                    UserID = 1,
+                    Name = "Private Workflow",
+                    IsEnabled = true
+                };
+
+                db.Workflow.Add(workflow);
+                await db.SaveChangesAsync();
+
+                workflowId = workflow.ID;
+            }
+
+            var client = await CreateAuthenticatedClientWithSeededUserAsync(userId: 2, email: "attacker@example.com", displayName: "Other User");
+
+            var request = new SaveWorkflowStepsRequestDto
+            {
+                Steps = [
+                    new WorkflowStepItemDto
+                    {
+                        StepType = "http",
+                        ConfigJson = "{}"
+                    }
+                ]
+            };
+
+            HttpResponseMessage response = method switch
+            {
+                "GET" => await client.GetAsync($"/workflow/{workflowId}/step"),
+                "POST" => await client.PostAsJsonAsync($"/workflow/{workflowId}/step", request),
+                "PUT" => await client.PutAsJsonAsync($"/workflow/{workflowId}/step", request),
+                "DELETE" => await client.DeleteAsync($"/workflow/{workflowId}/step"),
+                _ => throw new InvalidOperationException()
+            };
+
+            response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        }
+
+        [Fact]
+        public async Task DeleteWorkflow_ShouldCascadeDeleteSteps()
+        {
+            await _factory.ResetDatabaseAsync();
+
+            var client = await CreateAuthenticatedClientWithSeededUserAsync(userId: 1, email: "cascade@example.com", displayName: "Cascade User");
+
+            int workflowId;
+
+            using (var scope = _factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+                var workflow = new Workflow
+                {
+                    UserID = 1,
+                    Name = "Cascade Workflow",
+                    IsEnabled = true,
+                    WorkflowSteps = [
+                        new WorkflowStep
+                        {
+                            WorkflowID = 1,
+                            StepType = "first",
+                            ConfigJson = "{}",
+                            StepOrder = 1
+                        },
+                        new WorkflowStep
+                        {
+                            WorkflowID = 1,
+                            StepType = "second",
+                            ConfigJson = "{}",
+                            StepOrder = 2
+                        }
+                    ]
+                };
+
+                db.Workflow.Add(workflow);
+                await db.SaveChangesAsync();
+
+                workflowId = workflow.ID;
+            }
+
+            var response = await client.DeleteAsync($"/workflow/{workflowId}");
+
+            response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+            using var verificationScope = _factory.Services.CreateScope();
+
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var workflowExists = await verificationDb.Workflow.AnyAsync(workflow => workflow.ID == workflowId);
+
+            var stepsExist = await verificationDb.WorkflowStep.AnyAsync(step => step.WorkflowID == workflowId);
+
+            workflowExists.Should().BeFalse();
+            stepsExist.Should().BeFalse();
+        }
+
+        [Fact]
+        public async Task ReplaceWorkflowSteps_ShouldPersistContiguousOrder_InPostgreSql()
+        {
+            await _factory.ResetDatabaseAsync();
+
+            var client = await CreateAuthenticatedClientWithSeededUserAsync(userId: 1, email: "replace@example.com", displayName: "Replace User");
+
+            int workflowId;
+
+            using (var scope = _factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+                var workflow = new Workflow
+                {
+                    UserID = 1,
+                    Name = "Replacement Workflow",
+                    IsEnabled = true,
+                    WorkflowSteps = [
+                        new WorkflowStep
+                        {
+                            WorkflowID = 1,
+                            StepType = "old-a",
+                            ConfigJson = "{}",
+                            StepOrder = 1
+                        },
+                        new WorkflowStep
+                        {
+                            WorkflowID = 1,
+                            StepType = "old-b",
+                            ConfigJson = "{}",
+                            StepOrder = 2
+                        }
+                    ]
+                };
+
+                db.Workflow.Add(workflow);
+                await db.SaveChangesAsync();
+
+                workflowId = workflow.ID;
+            }
+
+            var response = await client.PutAsJsonAsync($"/workflow/{workflowId}/step",
+                new SaveWorkflowStepsRequestDto
+                {
+                    Steps = [
+                        new WorkflowStepItemDto
+                        {
+                            StepType = "new-a",
+                            ConfigJson = """{"value":1}"""
+                        },
+                        new WorkflowStepItemDto
+                        {
+                            StepType = "new-b",
+                            ConfigJson = """{"value":2}"""
+                        },
+                        new WorkflowStepItemDto
+                        {
+                            StepType = "new-c",
+                            ConfigJson = """{"value":3}"""
+                        }
+                    ]
+                });
+
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+            using var verificationScope = _factory.Services.CreateScope();
+
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var persistedSteps = await verificationDb.WorkflowStep
+                    .Where(step => step.WorkflowID == workflowId)
+                    .OrderBy(step => step.StepOrder)
+                    .ToListAsync();
+
+            persistedSteps.Select(step => step.StepOrder).Should().Equal(1, 2, 3);
+            persistedSteps.Select(step => step.StepType).Should().Equal("new-a", "new-b", "new-c");
+        }
+
+        [Fact]
+        public async Task ReplaceWorkflowSteps_ShouldAllowEmptyList()
+        {
+            await _factory.ResetDatabaseAsync();
+
+            const int userId = 7;
+
+            var client = await CreateAuthenticatedClientWithSeededUserAsync(userId, "replace-empty@example.com", "Replace Empty User");
+
+            var workflowId = await SeedWorkflowAsync(userId, "Replace Empty Workflow",
+                (
+                    StepType: "existing",
+                    ConfigJson: """{"a":1}""",
+                    StepOrder: 1
+                ));
+
+            var request = new SaveWorkflowStepsRequestDto
+            {
+                Steps = []
+            };
+
+            var response = await client.PutAsJsonAsync($"/workflow/{workflowId}/step", request);
+
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+            var payload = await response.Content.ReadFromJsonAsync<WorkflowStepListResponseDto>();
+
+            payload.Should().NotBeNull();
+            payload!.WorkflowId.Should().Be(workflowId);
+            payload.Steps.Should().BeEmpty();
+
+            using var verificationScope = _factory.Services.CreateScope();
+
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var stepsExist = await verificationDb.WorkflowStep.AnyAsync(step => step.WorkflowID == workflowId);
+
+            stepsExist.Should().BeFalse();
+        }
+
+        [Fact]
+        public async Task DeleteWorkflowSteps_ShouldSucceed_WhenNoStepsExist()
+        {
+            await _factory.ResetDatabaseAsync();
+
+            const int userId = 7;
+
+            var client = await CreateAuthenticatedClientWithSeededUserAsync(userId, "delete-empty@example.com", "Delete Empty User");
+
+            var workflowId = await SeedWorkflowAsync(userId, "No Steps Workflow");
+
+            var response = await client.DeleteAsync($"/workflow/{workflowId}/step");
+
+            response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+            using var verificationScope = _factory.Services.CreateScope();
+
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var workflowExists = await verificationDb.Workflow.AnyAsync(workflow => workflow.ID == workflowId);
+
+            var stepsExist = await verificationDb.WorkflowStep.AnyAsync(step => step.WorkflowID == workflowId);
+
+            workflowExists.Should().BeTrue();
+            stepsExist.Should().BeFalse();
+        }
+
+        [Fact]
+        public async Task DeleteWorkflowSteps_ShouldDeleteAllSteps_WhenTheyExist()
+        {
+            await _factory.ResetDatabaseAsync();
+
+            const int userId = 7;
+
+            var client = await CreateAuthenticatedClientWithSeededUserAsync(userId, "delete-steps@example.com", "Delete Steps User");
+
+            var workflowId = await SeedWorkflowAsync(userId, "Delete Steps Workflow",
+                (
+                    StepType: "a",
+                    ConfigJson: """{"a":1}""",
+                    StepOrder: 1
+                ),
+                (
+                    StepType: "b",
+                    ConfigJson: """{"b":2}""",
+                    StepOrder: 2
+                ));
+
+            var response = await client.DeleteAsync($"/workflow/{workflowId}/step");
+
+            response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+            using var verificationScope = _factory.Services.CreateScope();
+
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var workflowExists = await verificationDb.Workflow.AnyAsync(workflow => workflow.ID == workflowId);
+
+            var remainingSteps = await verificationDb.WorkflowStep
+                .Where(step => step.WorkflowID == workflowId)
+                .ToListAsync();
+
+            workflowExists.Should().BeTrue();
+            remainingSteps.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task ReplaceWorkflowSteps_ShouldReplaceAllExistingSteps()
+        {
+            await _factory.ResetDatabaseAsync();
+
+            const int userId = 7;
+
+            var client = await CreateAuthenticatedClientWithSeededUserAsync(userId, "replace-all@example.com", "Replace All User");
+
+            var workflowId = await SeedWorkflowAsync(userId, "Replace Workflow",
+                (
+                    StepType: "old-1",
+                    ConfigJson: """{"a":1}""",
+                    StepOrder: 1
+                ),
+                (
+                    StepType: "old-2",
+                    ConfigJson: """{"b":2}""",
+                    StepOrder: 2
+                ));
+
+            var request = new SaveWorkflowStepsRequestDto
+            {
+                Steps = [
+                    new WorkflowStepItemDto
+                    {
+                        StepType = "new-1",
+                        ConfigJson = """{"x":1}"""
+                    },
+                    new WorkflowStepItemDto
+                    {
+                        StepType = "new-2",
+                        ConfigJson = """{"y":2}"""
+                    },
+                    new WorkflowStepItemDto
+                    {
+                        StepType = "new-3",
+                        ConfigJson = """{"z":3}"""
+                    }
+                ]
+            };
+
+            var response = await client.PutAsJsonAsync($"/workflow/{workflowId}/step", request);
+
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+            var payload = await response.Content.ReadFromJsonAsync<WorkflowStepListResponseDto>();
+
+            payload.Should().NotBeNull();
+            payload!.WorkflowId.Should().Be(workflowId);
+            payload.Steps.Select(step => step.StepType).Should().Equal("new-1", "new-2", "new-3");
+            payload.Steps.Select(step => step.StepOrder).Should().Equal(1, 2, 3);
+
+            using var verificationScope = _factory.Services.CreateScope();
+
+            var verificationDb = verificationScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var savedSteps = await verificationDb.WorkflowStep
+                .Where(step => step.WorkflowID == workflowId)
+                .OrderBy(step => step.StepOrder)
+                .ToListAsync();
+
+            savedSteps.Should().HaveCount(3);
+            savedSteps.Select(step => step.StepType).Should().Equal("new-1", "new-2", "new-3");
+            savedSteps.Select(step => step.StepOrder).Should().Equal(1, 2, 3);
+            savedSteps.Should().NotContain(step => step.StepType == "old-1" || step.StepType == "old-2");
+        }
+
+        private async Task<int> SeedWorkflowAsync(int userId, string name, params (string StepType, string ConfigJson, int StepOrder)[] steps)
+        {
+            using var scope = _factory.Services.CreateScope();
+
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var workflow = new Workflow
+            {
+                UserID = userId,
+                Name = name,
+                IsEnabled = true
+            };
+
+            db.Workflow.Add(workflow);
+            await db.SaveChangesAsync();
+
+            if (steps.Length > 0)
+            {
+                var workflowSteps = steps.Select(step => new WorkflowStep
+                {
+                    WorkflowID = workflow.ID,
+                    StepType = step.StepType,
+                    ConfigJson = step.ConfigJson,
+                    StepOrder = step.StepOrder
+                });
+
+                db.WorkflowStep.AddRange(workflowSteps);
+                await db.SaveChangesAsync();
+            }
+
+            return workflow.ID;
         }
 
         private async Task SeedAuthenticatedUserAsync(int userId, string email = "user@example.com:", string displayName = "Test User")

@@ -20,31 +20,27 @@ namespace Backend.Api.Tests.Integration
 {
     public sealed class CustomWebApplicationFactory : WebApplicationFactory<Program>
     {
-        public const string TestIssuer = "https://localhost";
-        public const string TestAudience = "TestAudience";
-        public const string TestKey = "ThisIsATestJwtKeyThatIsLongEnough123!";
-        public const string TestAccessTokenMinutes = "10";
-
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.ConfigureAppConfiguration((_, configBuilder) =>
             {
-                var config = new Dictionary<string, string?>
-                {
-                    ["ConnectionStrings:DefaultConnection"] =
-                        "Host=localhost;Port=5433;Database=test-workflow-automation-platform;Username=test_wap_user;Password=test_wap_dev_password",
-                    ["Jwt:Issuer"] = TestIssuer,
-                    ["Jwt:Audience"] = TestAudience,
-                    ["Jwt:Key"] = TestKey,
-                    ["Jwt:AccessTokenMinutes"] = TestAccessTokenMinutes
-                };
-
-                configBuilder.AddInMemoryCollection(config);
+                configBuilder.AddJsonFile(
+                    Path.Combine(AppContext.BaseDirectory, "appsettings.Test.json"),
+                    optional: false,
+                    reloadOnChange: false);
             });
 
             builder.ConfigureServices(services =>
             {
-                // Force JwtBearer middleware to validate with same exact values
+                using var serviceProvider = services.BuildServiceProvider();
+                using var scope = serviceProvider.CreateScope();
+
+                var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+
+                var issuer = configuration["Jwt:Issuer"] ?? throw new InvalidOperationException("Jwt:Issuer is missing from appsettings.Test.json.");
+                var audience = configuration["Jwt:Audience"] ?? throw new InvalidOperationException("Jwt:Audience is missing from appsettings.Test.json.");
+                var key = configuration["Jwt:Key"]?? throw new InvalidOperationException( "Jwt:Key is missing from appsettings.Test.json.");
+
                 services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
                 {
                     options.TokenValidationParameters = new TokenValidationParameters
@@ -53,16 +49,12 @@ namespace Backend.Api.Tests.Integration
                         ValidateAudience = true,
                         ValidateIssuerSigningKey = true,
                         ValidateLifetime = true,
-                        ValidIssuer = TestIssuer,
-                        ValidAudience = TestAudience,
-                        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(TestKey)),
-                        ClockSkew = TimeSpan.Zero
+                        ValidIssuer = issuer,
+                        ValidAudience = audience,
+                        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)), ClockSkew = TimeSpan.Zero
                     };
                 });
 
-                var sp = services.BuildServiceProvider();
-
-                using var scope = sp.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
                 db.Database.EnsureDeleted();
@@ -78,38 +70,14 @@ namespace Backend.Api.Tests.Integration
                 // Register permissive policies for normal integration tests.
                 services.AddRateLimiter(options =>
                 {
-                    options.RejectionStatusCode =
-                        StatusCodes.Status429TooManyRequests;
+                    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-                    options.GlobalLimiter =
-                        PartitionedRateLimiter.Create<HttpContext, string>(
-                            httpContext =>
-                                RateLimitPartition.GetNoLimiter(
-                                    partitionKey: "integration-tests"));
+                    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext => RateLimitPartition.GetNoLimiter(partitionKey: "integration-tests"));
 
-                    options.AddPolicy(
-                        RateLimitingPolicies.Login,
-                        httpContext =>
-                            RateLimitPartition.GetNoLimiter(
-                                partitionKey: "integration-tests"));
-
-                    options.AddPolicy(
-                        RateLimitingPolicies.Registration,
-                        httpContext =>
-                            RateLimitPartition.GetNoLimiter(
-                                partitionKey: "integration-tests"));
-
-                    options.AddPolicy(
-                        RateLimitingPolicies.PasswordReset,
-                        httpContext =>
-                            RateLimitPartition.GetNoLimiter(
-                                partitionKey: "integration-tests"));
-
-                    options.AddPolicy(
-                        RateLimitingPolicies.TokenRefresh,
-                        httpContext =>
-                            RateLimitPartition.GetNoLimiter(
-                                partitionKey: "integration-tests"));
+                    options.AddPolicy(RateLimitingPolicies.Login, httpContext => RateLimitPartition.GetNoLimiter(partitionKey: "integration-tests"));
+                    options.AddPolicy(RateLimitingPolicies.Registration, httpContext => RateLimitPartition.GetNoLimiter(partitionKey: "integration-tests"));
+                    options.AddPolicy(RateLimitingPolicies.PasswordReset, httpContext => RateLimitPartition.GetNoLimiter(partitionKey: "integration-tests"));
+                    options.AddPolicy(RateLimitingPolicies.TokenRefresh, httpContext => RateLimitPartition.GetNoLimiter(partitionKey: "integration-tests"));
                 });
             });
         }

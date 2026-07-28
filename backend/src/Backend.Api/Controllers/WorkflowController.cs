@@ -1,7 +1,5 @@
 ﻿using Backend.Api.Models.Dtos.Workflow;
-using Backend.Api.Models.Dtos.WorkflowStep;
 using Backend.Api.Services.Workflow;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Backend.Api.Controllers
@@ -18,116 +16,126 @@ namespace Backend.Api.Controllers
         }
 
         [HttpPost]
-        public async Task<ActionResult<WorkflowResponseDto>> CreateWorkflow([FromBody] CreateWorkflowRequestDto dto, CancellationToken ct)
+        public async Task<ActionResult<WorkflowResponseDto>> CreateWorkflow([FromBody] CreateWorkflowRequestDto request, CancellationToken cancellationToken)
         {
-            var result = await _workflow.CreateWorkflowAsync(dto, ct);
+            var result = await _workflow.CreateWorkflowAsync(request, cancellationToken);
 
             if (!result.Succeeded)
             {
-                var hasConflict = result.Errors.Any(e => e.Code == "workflow.duplicate_name");
-                if (hasConflict)
+                if (HasError(result.Errors, "workflow.duplicate_name"))
                 {
-                    return base.Conflict(new { errors = result.Errors });
+                    return Conflict(new { errors = result.Errors });
                 }
 
-                return base.BadRequest(new { errors = result.Errors });
+                if (HasError(result.Errors, "auth.unauthorized"))
+                {
+                    return Unauthorized(new { errors = result.Errors });
+                }
+
+                return BadRequest(new
+                {
+                    errors = result.Errors
+                });
             }
 
-            return base.CreatedAtAction(nameof(GetWorkflowById), new { workflowId = result.Data!.Id }, result.Data);
+            return CreatedAtAction(nameof(GetWorkflowById), new { workflowId = result.Data!.Id }, result.Data);
         }
 
         [HttpGet]
-        public async Task<ActionResult<List<WorkflowResponseDto>>> GetAllWorkflows(CancellationToken ct)
+        public async Task<ActionResult<WorkflowListResponseDto>> GetAllWorkflows([FromQuery] WorkflowListRequestDto request, CancellationToken cancellationToken)
         {
-            var result = await _workflow.GetWorkflowsAsync(ct);
+            var result = await _workflow.GetWorkflowsAsync(request, cancellationToken);
 
             if (!result.Succeeded)
             {
-                var hasUnauthorized = result.Errors.Any(e => e.Code == "auth.unauthorized");
-                if (hasUnauthorized)
+                if (HasError(result.Errors, "auth.unauthorized"))
                 {
-                    return base.Unauthorized(new { errors = result.Errors });
+                    return Unauthorized(new { errors = result.Errors });
                 }
 
-                return base.BadRequest(new { errors = result.Errors });
+                return BadRequest(new { errors = result.Errors });
             }
 
-            return base.Ok(result.Data);
+            return Ok(result.Data);
         }
 
         [HttpGet("{workflowId:int}")]
-        public async Task<ActionResult<WorkflowDetailResponseDto>> GetWorkflowById(int workflowId, CancellationToken ct)
+        public async Task<ActionResult<WorkflowDetailResponseDto>> GetWorkflowById(int workflowId, CancellationToken cancellationToken)
         {
-            var result = await _workflow.GetWorkflowByIdAsync(workflowId, ct);
+            var result = await _workflow.GetWorkflowByIdAsync(workflowId, cancellationToken);
 
             if (!result.Succeeded)
             {
-                var hasUnauthorized = result.Errors.Any(e => e.Code == "auth.unauthorized");
-                if (hasUnauthorized)
+                if (HasError(result.Errors, "auth.unauthorized"))
                 {
-                    return base.Unauthorized(new { errors = result.Errors });
+                    return Unauthorized(new { errors = result.Errors });
                 }
 
-                var hasNotFound = result.Errors.Any(e => e.Code == "workflow.not_found");
-                if (hasNotFound)
+                if (HasError(result.Errors, "workflow.not_found"))
                 {
-                    return base.NotFound(new { errors = result.Errors });
+                    return NotFound(new { errors = result.Errors });
                 }
 
-                return base.BadRequest(new { errors = result.Errors });
+                return BadRequest(new { errors = result.Errors });
             }
 
-            return base.Ok(result.Data);
+            return Ok(result.Data);
         }
 
         [HttpPut("{workflowId:int}")]
-        public async Task<ActionResult<WorkflowResponseDto>> UpdateWorkflow(int workflowId, [FromBody] UpdateWorkflowRequestDto dto, CancellationToken ct)
+        public async Task<ActionResult<WorkflowResponseDto>> UpdateWorkflow(int workflowId, [FromBody] UpdateWorkflowRequestDto request, CancellationToken cancellationToken)
         {
-            var result = await _workflow.UpdateWorkflowAsync(workflowId, dto, ct);
+            var result = await _workflow.UpdateWorkflowAsync(workflowId, request, cancellationToken);
 
             if (!result.Succeeded)
             {
-                var hasUnauthorized = result.Errors.Any(e => e.Code == "auth.unauthorized");
-                if (hasUnauthorized)
+                if (HasError(result.Errors, "auth.unauthorized"))
                 {
-                    return base.Unauthorized(new { errors = result.Errors });
+                    return Unauthorized(new { errors = result.Errors });
                 }
 
-                var hasNotFound = result.Errors.Any(e => e.Code == "workflow.not_found");
-                if (hasNotFound)
+                if (HasError(result.Errors, "workflow.not_found"))
                 {
-                    return base.NotFound(new { errors = result.Errors });
+                    return NotFound(new { errors = result.Errors });
                 }
 
-                return base.BadRequest(new { errors = result.Errors });
+                if (HasError(result.Errors, "workflow.duplicate_name"))
+                {
+                    return Conflict(new { errors = result.Errors });
+                }
+
+                return BadRequest(new { errors = result.Errors });
             }
 
-            return base.Ok(result.Data);
+            return Ok(result.Data);
         }
 
         [HttpDelete("{workflowId:int}")]
-        public async Task<ActionResult> DeleteWorkflow(int workflowId, CancellationToken ct)
+        public async Task<ActionResult> DeleteWorkflow(int workflowId, CancellationToken cancellationToken)
         {
-            var result = await _workflow.DeleteWorkflowAsync(workflowId, ct);
+            var result = await _workflow.DeleteWorkflowAsync(workflowId, cancellationToken);
 
             if (!result.Succeeded)
             {
-                var hasUnauthorized = result.Errors.Any(e => e.Code == "auth.unauthorized");
-                if (hasUnauthorized)
+                if (HasError(result.Errors, "auth.unauthorized"))
                 {
-                    return base.Unauthorized(new { errors = result.Errors });
+                    return Unauthorized(new { errors = result.Errors });
                 }
 
-                var hasNotFound = result.Errors.Any(e => e.Code == "workflow.not_found");
-                if (hasNotFound)
+                if (HasError(result.Errors, "workflow.not_found"))
                 {
-                    return base.NotFound(new { errors = result.Errors });
+                    return NotFound(new { errors = result.Errors });
                 }
 
-                return base.BadRequest(new { errors = result.Errors });
+                return BadRequest(new { errors = result.Errors });
             }
 
-            return base.NoContent();
+            return NoContent();
+        }
+
+        private static bool HasError(IReadOnlyList<Services.Common.ServiceError> errors, string code)
+        {
+            return errors.Any(error => error.Code == code);
         }
     }
 }

@@ -1,4 +1,5 @@
 ﻿using Backend.Api.Models.Entities;
+using Backend.Api.Models.Validation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -17,10 +18,13 @@ namespace Backend.Api.Data.Configurations
 
             builder.Property(w => w.Name)
                 .IsRequired()
-                .HasMaxLength(200);
+                .HasMaxLength(WorkflowLimits.NameMaxLength);
+
+            builder.Property(w => w.TriggerType)
+                .HasMaxLength(WorkflowLimits.TriggerTypeMaxLength);
 
             builder.Property(w => w.CronExpression)
-                .HasMaxLength(100);
+                .HasMaxLength(WorkflowLimits.TriggerTypeMaxLength);
 
             builder.Property(w => w.IsEnabled)
                 .IsRequired();
@@ -33,6 +37,11 @@ namespace Backend.Api.Data.Configurations
 
             builder.HasIndex(w => new { w.UserID, w.Name })
                 .IsUnique();
+
+            builder.HasOne(w => w.User)
+                .WithMany()
+                .HasForeignKey(w => w.UserID)
+                .OnDelete(DeleteBehavior.Cascade);
 
             builder.HasMany(w => w.WorkflowSteps)
                 .WithOne(s => s.Workflow)

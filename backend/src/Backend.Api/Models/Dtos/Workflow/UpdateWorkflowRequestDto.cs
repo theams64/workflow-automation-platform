@@ -1,19 +1,21 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using Backend.Api.Models.Validation;
+using System.ComponentModel.DataAnnotations;
 
 namespace Backend.Api.Models.Dtos.Workflow
 {
     public sealed class UpdateWorkflowRequestDto
     {
         [Required]
-        [MaxLength(200)]
+        [MaxLength(WorkflowLimits.NameMaxLength)]
         public string Name { get; set; } = default!;
 
         [Required]
-        public bool IsEnabled { get; set; } = default!;
+        public bool? IsEnabled { get; set; }
 
+        [MaxLength(WorkflowLimits.TriggerTypeMaxLength)]
         public string? TriggerType { get; set; }
 
-        [MaxLength(100)]
+        [MaxLength(WorkflowLimits.CronExpressionMaxLength)]
         public string? CronExpression { get; set; }
     }
 }

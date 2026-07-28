@@ -26,6 +26,7 @@ TestResults/
 # ASP.NET Core local config
 # ----------------------
 appsettings.Development.json
+appsettings.Test.json
 appsettings.*.local.json
 secrets.json
 

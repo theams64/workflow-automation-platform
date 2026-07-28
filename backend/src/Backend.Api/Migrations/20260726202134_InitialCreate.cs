@@ -221,8 +221,8 @@ namespace Backend.Api.Migrations
                     user_id = table.Column<int>(type: "integer", nullable: false),
                     name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     is_enabled = table.Column<bool>(type: "boolean", nullable: false),
-                    trigger_type = table.Column<string>(type: "text", nullable: true),
-                    cron_expression = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
+                    trigger_type = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
+                    cron_expression = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
                     created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
@@ -230,9 +230,9 @@ namespace Backend.Api.Migrations
                 {
                     table.PrimaryKey("PK_workflow", x => x.id);
                     table.ForeignKey(
-                        name: "FK_workflow_user_profile_user_id",
+                        name: "FK_workflow_asp_net_users_user_id",
                         column: x => x.user_id,
-                        principalTable: "user_profile",
+                        principalTable: "asp_net_users",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -311,9 +311,9 @@ namespace Backend.Api.Migrations
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
-                        name: "FK_step_run_workflow_run_workflow_step_id",
+                        name: "FK_step_run_workflow_step_workflow_step_id",
                         column: x => x.workflow_step_id,
-                        principalTable: "workflow_run",
+                        principalTable: "workflow_step",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -436,7 +436,7 @@ namespace Backend.Api.Migrations
                 name: "step_run");
 
             migrationBuilder.DropTable(
-                name: "workflow_step");
+                name: "user_profile");
 
             migrationBuilder.DropTable(
                 name: "asp_net_roles");
@@ -445,10 +445,10 @@ namespace Backend.Api.Migrations
                 name: "workflow_run");
 
             migrationBuilder.DropTable(
-                name: "workflow");
+                name: "workflow_step");
 
             migrationBuilder.DropTable(
-                name: "user_profile");
+                name: "workflow");
 
             migrationBuilder.DropTable(
                 name: "asp_net_users");

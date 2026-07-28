@@ -20,7 +20,6 @@ namespace Backend.Api.Tests.Common
 
             var options = new DbContextOptionsBuilder<AppDbContext>()
                 .UseInMemoryDatabase(databaseName)
-                .EnableSensitiveDataLogging()
                 .Options;
 
             return new AppDbContext(options);
