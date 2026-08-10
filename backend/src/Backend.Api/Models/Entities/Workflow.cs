@@ -3,41 +3,47 @@ using Backend.Api.Models.Validation;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
-namespace Backend.Api.Models.Entities;
+namespace Backend.Api.Models.Entities
+{ 
+    [Table("workflow")]
+    public class Workflow : IAuditable
+    {
+        [Key]
+        [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
+        [Column("id")]
+        public int ID { get; set; }
 
-[Table("workflow")]
-public class Workflow : IAuditable
-{
-    [Key]
-    [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
-    [Column("id")]
-    public int ID { get; set; }
+        [Column("user_id")]
+        public required int UserID { get; set; }
 
-    [Column("user_id")]
-    public required int UserID { get; set; }
+        public ApplicationUser? User { get; set; }
 
-    public ApplicationUser? User { get; set; }
+        [Column("name")]
+        [MaxLength(WorkflowLimits.NameMaxLength)]
+        public required string Name { get; set; }
 
-    [Column("name")]
-    [MaxLength(WorkflowLimits.NameMaxLength)]
-    public required string Name { get; set; }
+        [Column("is_enabled")]
+        public required bool IsEnabled { get; set; }
 
-    [Column("is_enabled")]
-    public required bool IsEnabled { get; set; }
+        [Column("trigger_type")]
+        [MaxLength(WorkflowLimits.TriggerTypeMaxLength)]
+        public string? TriggerType { get; set; }
 
-    [Column("trigger_type")]
-    [MaxLength(WorkflowLimits.TriggerTypeMaxLength)]
-    public string? TriggerType { get; set; }
+        [Column("cron_expression")]
+        [MaxLength(WorkflowLimits.CronExpressionMaxLength)]
+        public string? CronExpression { get; set; }
 
-    [Column("cron_expression")]
-    [MaxLength(WorkflowLimits.CronExpressionMaxLength)]
-    public string? CronExpression { get; set; }
+        [Column("timezone")]
+        [MaxLength(WorkflowLimits.TimezoneMaxLength)]
+        public required string Timezone { get; set; }
 
-    public ICollection<WorkflowStep> WorkflowSteps { get; set; } = new List<WorkflowStep>();
+        public ICollection<WorkflowStep> WorkflowSteps { get; set; } = [];
+        public ICollection<WorkflowExecution> WorkflowExecutions { get; set; } = [];
 
-    [Column("created_at")]
-    public DateTimeOffset CreatedAt { get; set; }
+        [Column("created_at")]
+        public DateTimeOffset CreatedAt { get; set; }
 
-    [Column("updated_at")]
-    public DateTimeOffset UpdatedAt { get; set; }
+        [Column("updated_at")]
+        public DateTimeOffset UpdatedAt { get; set; }
+    }
 }

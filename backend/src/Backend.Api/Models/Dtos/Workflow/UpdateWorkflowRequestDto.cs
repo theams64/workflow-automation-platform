@@ -17,5 +17,9 @@ namespace Backend.Api.Models.Dtos.Workflow
 
         [MaxLength(WorkflowLimits.CronExpressionMaxLength)]
         public string? CronExpression { get; set; }
+
+        [Required]
+        [MaxLength(WorkflowLimits.TimezoneMaxLength)]
+        public string Timezone { get; set; } = "UTC";
     }
 }

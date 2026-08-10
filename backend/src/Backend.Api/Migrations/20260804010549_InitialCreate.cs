@@ -222,7 +222,8 @@ namespace Backend.Api.Migrations
                     name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     is_enabled = table.Column<bool>(type: "boolean", nullable: false),
                     trigger_type = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
-                    cron_expression = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
+                    cron_expression = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
+                    timezone = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
                     created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
@@ -238,23 +239,36 @@ namespace Backend.Api.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "workflow_run",
+                name: "workflow_execution",
                 columns: table => new
                 {
-                    id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    id = table.Column<Guid>(type: "uuid", nullable: false),
                     workflow_id = table.Column<int>(type: "integer", nullable: false),
-                    status = table.Column<string>(type: "text", nullable: true),
-                    triggered_by = table.Column<string>(type: "text", nullable: true),
-                    started_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    finished_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                    input_payload = table.Column<string>(type: "text", nullable: true)
+                    initiating_user_id = table.Column<int>(type: "integer", nullable: false),
+                    trigger_type = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
+                    status = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
+                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    started_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    completed_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    scheduled_for = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    effective_date = table.Column<DateOnly>(type: "date", nullable: false),
+                    timezone = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    input_json = table.Column<string>(type: "jsonb", nullable: false),
+                    error_code = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
+                    error_message = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_workflow_run", x => x.id);
+                    table.PrimaryKey("PK_workflow_execution", x => x.id);
+                    table.CheckConstraint("CK_workflow_execution_status", "status IN ('pending','running','succeeded','failed','cancelled')");
                     table.ForeignKey(
-                        name: "FK_workflow_run_workflow_workflow_id",
+                        name: "FK_workflow_execution_asp_net_users_initiating_user_id",
+                        column: x => x.initiating_user_id,
+                        principalTable: "asp_net_users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_workflow_execution_workflow_workflow_id",
                         column: x => x.workflow_id,
                         principalTable: "workflow",
                         principalColumn: "id",
@@ -268,6 +282,7 @@ namespace Backend.Api.Migrations
                     id = table.Column<int>(type: "integer", nullable: false)
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     workflow_id = table.Column<int>(type: "integer", nullable: false),
+                    step_key = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
                     step_type = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
                     config_json = table.Column<string>(type: "jsonb", nullable: false),
                     step_order = table.Column<int>(type: "integer", nullable: false),
@@ -286,36 +301,39 @@ namespace Backend.Api.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "step_run",
+                name: "step_execution",
                 columns: table => new
                 {
-                    id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    workflow_run_id = table.Column<int>(type: "integer", nullable: false),
-                    workflow_step_id = table.Column<int>(type: "integer", nullable: false),
-                    status = table.Column<string>(type: "text", nullable: true),
-                    started_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    finished_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                    input_json = table.Column<string>(type: "text", nullable: false),
-                    output_json = table.Column<string>(type: "text", nullable: true),
-                    error = table.Column<string>(type: "text", nullable: true),
-                    attempt = table.Column<int>(type: "integer", nullable: false)
+                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    workflow_execution_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    workflow_step_id = table.Column<int>(type: "integer", nullable: true),
+                    step_key = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    step_type = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    step_order = table.Column<int>(type: "integer", nullable: false),
+                    status = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
+                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    started_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    completed_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    output_json = table.Column<string>(type: "jsonb", nullable: true),
+                    error_code = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
+                    error_message = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_step_run", x => x.id);
+                    table.PrimaryKey("PK_step_execution", x => x.id);
+                    table.CheckConstraint("CK_step_execution_status", "status IN ('pending','running','succeeded','failed','cancelled')");
                     table.ForeignKey(
-                        name: "FK_step_run_workflow_run_workflow_run_id",
-                        column: x => x.workflow_run_id,
-                        principalTable: "workflow_run",
+                        name: "FK_step_execution_workflow_execution_workflow_execution_id",
+                        column: x => x.workflow_execution_id,
+                        principalTable: "workflow_execution",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
-                        name: "FK_step_run_workflow_step_workflow_step_id",
+                        name: "FK_step_execution_workflow_step_workflow_step_id",
                         column: x => x.workflow_step_id,
                         principalTable: "workflow_step",
                         principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
+                        onDelete: ReferentialAction.SetNull);
                 });
 
             migrationBuilder.CreateIndex(
@@ -378,13 +396,20 @@ namespace Backend.Api.Migrations
                 columns: new[] { "user_id", "revoked_at", "expires_at" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_step_run_workflow_run_id",
-                table: "step_run",
-                column: "workflow_run_id");
+                name: "IX_step_execution_workflow_execution_id_step_key",
+                table: "step_execution",
+                columns: new[] { "workflow_execution_id", "step_key" },
+                unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_step_run_workflow_step_id",
-                table: "step_run",
+                name: "IX_step_execution_workflow_execution_id_step_order",
+                table: "step_execution",
+                columns: new[] { "workflow_execution_id", "step_order" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_step_execution_workflow_step_id",
+                table: "step_execution",
                 column: "workflow_step_id");
 
             migrationBuilder.CreateIndex(
@@ -400,9 +425,25 @@ namespace Backend.Api.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_workflow_run_workflow_id",
-                table: "workflow_run",
-                column: "workflow_id");
+                name: "IX_workflow_execution_initiating_user_id_created_at",
+                table: "workflow_execution",
+                columns: new[] { "initiating_user_id", "created_at" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_workflow_execution_status",
+                table: "workflow_execution",
+                column: "status");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_workflow_execution_workflow_id_created_at",
+                table: "workflow_execution",
+                columns: new[] { "workflow_id", "created_at" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_workflow_step_workflow_id_step_key",
+                table: "workflow_step",
+                columns: new[] { "workflow_id", "step_key" },
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_workflow_step_workflow_id_step_order",
@@ -433,7 +474,7 @@ namespace Backend.Api.Migrations
                 name: "refresh_token");
 
             migrationBuilder.DropTable(
-                name: "step_run");
+                name: "step_execution");
 
             migrationBuilder.DropTable(
                 name: "user_profile");
@@ -442,7 +483,7 @@ namespace Backend.Api.Migrations
                 name: "asp_net_roles");
 
             migrationBuilder.DropTable(
-                name: "workflow_run");
+                name: "workflow_execution");
 
             migrationBuilder.DropTable(
                 name: "workflow_step");

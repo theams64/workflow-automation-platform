@@ -1,5 +1,8 @@
 ﻿using Backend.Api.Data;
 using Backend.Api.Infrastructure.RateLimiting;
+using Backend.Api.Services.Workflow;
+using Backend.Api.Tests.Common;
+using Backend.Api.WorkflowEngine.Abstractions;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -66,6 +69,10 @@ namespace Backend.Api.Tests.Integration
                 // Remove the rate-limiter configuration registered by Program.cs.
                 services.RemoveAll<IConfigureOptions<RateLimiterOptions>>();
                 services.RemoveAll<IPostConfigureOptions<RateLimiterOptions>>();
+
+                services.AddScoped<IWorkflowStepExecutor>(_ => new FakeStepExecutor("http"));
+                services.AddScoped<IWorkflowStepExecutor>(_ => new FakeStepExecutor("email"));
+                services.AddScoped<IWorkflowStepExecutor>(_ => new FakeStepExecutor("delay"));
 
                 // Register permissive policies for normal integration tests.
                 services.AddRateLimiter(options =>

@@ -5,6 +5,9 @@ using Backend.Api.Models.Validation;
 using Backend.Api.Services.Common;
 using Backend.Api.Services.Workflow;
 using Backend.Api.Tests.Common;
+using Backend.Api.WorkflowEngine.Abstractions;
+using Backend.Api.WorkflowEngine.Time;
+using Backend.Api.WorkflowEngine.Validation;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Moq;
@@ -30,12 +33,15 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var request = new CreateWorkflowRequestDto
             {
                 Name = "Test Workflow",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             };
 
             var result = await sut.CreateWorkflowAsync(request);
@@ -57,14 +63,17 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var request = new CreateWorkflowRequestDto
             {
                 Name = "   ",
                 IsEnabled = true,
                 TriggerType = "Scheduled",
-                CronExpression = "0 0 * * *"
+                CronExpression = "0 0 * * *",
+                Timezone = "UTC"
             };
 
             var result = await sut.CreateWorkflowAsync(request);
@@ -87,14 +96,17 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var request = new CreateWorkflowRequestDto
             {
                 Name = "Bad Cron Workflow",
                 IsEnabled = true,
                 TriggerType = "Scheduled",
-                CronExpression = "not-a-cron"
+                CronExpression = "not-a-cron",
+                Timezone = "UTC"
             };
 
             var result = await sut.CreateWorkflowAsync(request);
@@ -117,14 +129,17 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var request = new CreateWorkflowRequestDto
             {
                 Name = "  Daily Sync  ",
-                IsEnabled = true,
+                IsEnabled = false,
                 TriggerType = "schedule",
-                CronExpression = "0 0 * * *"
+                CronExpression = "0 0 * * *",
+                Timezone = "UTC"
             };
 
             var result = await sut.CreateWorkflowAsync(request);
@@ -147,7 +162,8 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 7,
                 Name = "Duplicate Name",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             });
 
             await db.SaveChangesAsync();
@@ -160,12 +176,15 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var request = new CreateWorkflowRequestDto
             {
                 Name = "Duplicate Name",
-                IsEnabled = false
+                IsEnabled = false,
+                Timezone = "UTC"
             };
 
             var result = await sut.CreateWorkflowAsync(request);
@@ -183,7 +202,8 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 99,
                 Name = "Shared Name",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             });
 
             await db.SaveChangesAsync();
@@ -196,12 +216,15 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var request = new CreateWorkflowRequestDto
             {
                 Name = "Shared Name",
-                IsEnabled = true
+                IsEnabled = false,
+                Timezone = "UTC"
             };
 
             var result = await sut.CreateWorkflowAsync(request);
@@ -216,10 +239,10 @@ namespace Backend.Api.Tests.Services
             await using var db = WorkflowTestHelpers.CreateInMemoryDbContext();
 
             db.Workflow.AddRange(
-                new Workflow { UserID = 7, Name = "Second", IsEnabled = true },
-                new Workflow { UserID = 99, Name = "Other User", IsEnabled = true },
-                new Workflow { UserID = 7, Name = "Third", IsEnabled = true },
-                new Workflow { UserID = 7, Name = "First", IsEnabled = true });
+                new Workflow { UserID = 7, Name = "Second", IsEnabled = false, Timezone = "UTC" },
+                new Workflow { UserID = 99, Name = "Other User", IsEnabled = false, Timezone = "UTC" },
+                new Workflow { UserID = 7, Name = "Third", IsEnabled = false, Timezone = "UTC" },
+                new Workflow { UserID = 7, Name = "First", IsEnabled = false, Timezone = "UTC" });
 
             await db.SaveChangesAsync();
 
@@ -237,7 +260,9 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var result = await sut.GetWorkflowsAsync(new WorkflowListRequestDto());
 
@@ -265,7 +290,8 @@ namespace Backend.Api.Tests.Services
                 {
                     UserID = 7,
                     Name = $"Workflow {i:D2}",
-                    IsEnabled = true
+                    IsEnabled = false,
+                    Timezone = "UTC"
                 });
             }
 
@@ -275,7 +301,9 @@ namespace Backend.Api.Tests.Services
                 db, 
                 WorkflowTestHelpers.CreateCurrentUserServiceMock(7).Object, 
                 WorkflowTestHelpers.CreateCronValidatorMock(true).Object, 
-                WorkflowTestHelpers.CreateJsonValidatorMock(true).Object);
+                WorkflowTestHelpers.CreateJsonValidatorMock(true).Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var result = await sut.GetWorkflowsAsync(new WorkflowListRequestDto
             {
@@ -307,7 +335,9 @@ namespace Backend.Api.Tests.Services
                 db,
                 WorkflowTestHelpers.CreateCurrentUserServiceMock(7).Object,
                 WorkflowTestHelpers.CreateCronValidatorMock(true).Object,
-                WorkflowTestHelpers.CreateJsonValidatorMock(true).Object);
+                WorkflowTestHelpers.CreateJsonValidatorMock(true).Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var result = await sut.GetWorkflowsAsync(new WorkflowListRequestDto
             {
@@ -328,16 +358,17 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 7,
                 Name = "Workflow A",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             };
 
             db.Workflow.Add(workflow);
             await db.SaveChangesAsync();
 
             db.WorkflowStep.AddRange(
-                new WorkflowStep { WorkflowID = workflow.ID, StepType = "third", ConfigJson = "{\"x\":3}", StepOrder = 3 },
-                new WorkflowStep { WorkflowID = workflow.ID, StepType = "first", ConfigJson = "{\"x\":1}", StepOrder = 1 },
-                new WorkflowStep { WorkflowID = workflow.ID, StepType = "second", ConfigJson = "{\"x\":2}", StepOrder = 2 });
+                new WorkflowStep { WorkflowID = workflow.ID, StepKey = "third", StepType = "third", ConfigJson = "{\"x\":3}", StepOrder = 3 },
+                new WorkflowStep { WorkflowID = workflow.ID, StepKey = "first", StepType = "first", ConfigJson = "{\"x\":1}", StepOrder = 1 },
+                new WorkflowStep { WorkflowID = workflow.ID, StepKey = "second", StepType = "second", ConfigJson = "{\"x\":2}", StepOrder = 2 });
             await db.SaveChangesAsync();
 
             var currentUserService = WorkflowTestHelpers.CreateCurrentUserServiceMock(7);
@@ -348,7 +379,9 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var result = await sut.GetWorkflowByIdAsync(workflow.ID);
 
@@ -367,7 +400,8 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 99,
                 Name = "Not Mine",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             });
 
             await db.SaveChangesAsync();
@@ -382,7 +416,9 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var result = await sut.GetWorkflowByIdAsync(workflowId);
 
@@ -399,7 +435,8 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 99,
                 Name = "Not Mine",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             });
 
             await db.SaveChangesAsync();
@@ -414,13 +451,16 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var request = new UpdateWorkflowRequestDto
             {
                 Name = "Updated",
                 IsEnabled = false,
-                CronExpression = "0 0 * * *"
+                CronExpression = "0 0 * * *",
+                Timezone = "UTC"
             };
 
             var result = await sut.UpdateWorkflowAsync(workflowId, request);
@@ -438,14 +478,16 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 7,
                 Name = "First",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             };
 
             var second = new Workflow
             {
                 UserID = 7,
                 Name = "Second",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             };
 
             db.Workflow.AddRange(first, second);
@@ -455,13 +497,16 @@ namespace Backend.Api.Tests.Services
                 db,
                 WorkflowTestHelpers.CreateCurrentUserServiceMock(7).Object,
                 WorkflowTestHelpers.CreateCronValidatorMock(true).Object,
-                WorkflowTestHelpers.CreateJsonValidatorMock(true).Object);
+                WorkflowTestHelpers.CreateJsonValidatorMock(true).Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var result = await sut.UpdateWorkflowAsync(second.ID, new UpdateWorkflowRequestDto
             {
                 Name = first.Name,
                 IsEnabled = true,
-                TriggerType = "manual"
+                TriggerType = "manual",
+                Timezone = "UTC"
             });
 
             result.Succeeded.Should().BeFalse();
@@ -484,7 +529,8 @@ namespace Backend.Api.Tests.Services
                 Name = "Original",
                 IsEnabled = true,
                 TriggerType = "schedule",
-                CronExpression = "0 0 * * *"
+                CronExpression = "0 0 * * *",
+                Timezone = "UTC"
             });
 
             await db.SaveChangesAsync();
@@ -498,14 +544,17 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var request = new UpdateWorkflowRequestDto
             {
                 Name = " Updated Workflow ",
                 IsEnabled = false,
                 TriggerType = "manual",
-                CronExpression = "*/5 * * * *"
+                CronExpression = "*/5 * * * *",
+                Timezone = "UTC"
             };
 
             var result = await sut.UpdateWorkflowAsync(workflowId, request);
@@ -527,7 +576,8 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 99,
                 Name = "Other User Workflow",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             });
 
             await db.SaveChangesAsync();
@@ -541,7 +591,9 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var result = await sut.DeleteWorkflowAsync(workflowId);
 
@@ -558,7 +610,8 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 7,
                 Name = "Delete Me",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             });
 
             await db.SaveChangesAsync();
@@ -572,7 +625,9 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var result = await sut.DeleteWorkflowAsync(workflowId);
 
@@ -589,16 +644,17 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 7,
                 Name = "Steps Workflow",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             };
 
             db.Workflow.Add(workflow);
             await db.SaveChangesAsync();
 
             db.WorkflowStep.AddRange(
-                new WorkflowStep { WorkflowID = workflow.ID, StepType = "third", ConfigJson = "{\"v\":3}", StepOrder = 3 },
-                new WorkflowStep { WorkflowID = workflow.ID, StepType = "first", ConfigJson = "{\"v\":1}", StepOrder = 1 },
-                new WorkflowStep { WorkflowID = workflow.ID, StepType = "second", ConfigJson = "{\"v\":2}", StepOrder = 2 });
+                new WorkflowStep { WorkflowID = workflow.ID, StepKey = "third", StepType = "third", ConfigJson = "{\"v\":3}", StepOrder = 3 },
+                new WorkflowStep { WorkflowID = workflow.ID, StepKey = "first", StepType = "first", ConfigJson = "{\"v\":1}", StepOrder = 1 },
+                new WorkflowStep { WorkflowID = workflow.ID, StepKey = "second", StepType = "second", ConfigJson = "{\"v\":2}", StepOrder = 2 });
 
             await db.SaveChangesAsync();
 
@@ -610,7 +666,9 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var result = await sut.GetWorkflowStepsAsync(workflow.ID);
 
@@ -630,7 +688,8 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 99,
                 Name = "Other User Workflow",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             });
 
             await db.SaveChangesAsync();
@@ -644,13 +703,16 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var request = new SaveWorkflowStepsRequestDto
             {
                 Steps = [
                     new WorkflowStepItemDto
                     {
+                        StepKey = "http",
                         StepType = "http",
                         ConfigJson = "{}"
                     }
@@ -672,7 +734,8 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 7,
                 Name = "Null Steps Workflow",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             };
 
             db.Workflow.Add(workflow);
@@ -686,7 +749,9 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var request = new SaveWorkflowStepsRequestDto
             {
@@ -709,7 +774,8 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 7,
                 Name = "Empty Steps Workflow",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             };
 
             db.Workflow.Add(workflow);
@@ -723,7 +789,9 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var request = new SaveWorkflowStepsRequestDto
             {
@@ -747,7 +815,8 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 7,
                 Name = "Create Steps Workflow",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             };
 
             db.Workflow.Add(workflow);
@@ -761,15 +830,17 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var request = new SaveWorkflowStepsRequestDto
             {
                 Steps = 
                 [
-                    new WorkflowStepItemDto { StepType = "http", ConfigJson = "{\"url\":\"https://example.com\"}" },
-                    new WorkflowStepItemDto { StepType = "email", ConfigJson = "{\"to\":\"a@example.com\"}" },
-                    new WorkflowStepItemDto { StepType = "delay", ConfigJson = "{\"seconds\":10}" }
+                    new WorkflowStepItemDto { StepKey = "http", StepType = "http", ConfigJson = "{\"url\":\"https://example.com\"}" },
+                    new WorkflowStepItemDto { StepKey = "email", StepType = "email", ConfigJson = "{\"to\":\"a@example.com\"}" },
+                    new WorkflowStepItemDto { StepKey = "delay", StepType = "delay", ConfigJson = "{\"seconds\":10}" }
                 ]
             };
 
@@ -790,7 +861,8 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 7,
                 Name = "Limited Workflow",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             };
 
             db.Workflow.Add(workflow);
@@ -800,6 +872,7 @@ namespace Backend.Api.Tests.Services
                 .Range(1, WorkflowLimits.MaxStepsPerWorkflow + 1)
                 .Select(index => new WorkflowStepItemDto
                 {
+                    StepKey = $"step-{index}",
                     StepType = $"step-{index}",
                     ConfigJson = "{}"
                 })
@@ -809,7 +882,9 @@ namespace Backend.Api.Tests.Services
                 db,
                 WorkflowTestHelpers.CreateCurrentUserServiceMock(7).Object,
                 WorkflowTestHelpers.CreateCronValidatorMock(true).Object,
-                WorkflowTestHelpers.CreateJsonValidatorMock(true).Object);
+                WorkflowTestHelpers.CreateJsonValidatorMock(true).Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var result = await sut.CreateWorkflowStepsAsync(workflow.ID, new SaveWorkflowStepsRequestDto
             {
@@ -831,7 +906,8 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 7,
                 Name = "JSON Limit Workflow",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             };
 
             db.Workflow.Add(workflow);
@@ -843,13 +919,16 @@ namespace Backend.Api.Tests.Services
                 db,
                 WorkflowTestHelpers.CreateCurrentUserServiceMock(7).Object,
                 WorkflowTestHelpers.CreateCronValidatorMock(true).Object,
-                WorkflowTestHelpers.CreateJsonValidatorMock(true).Object);
+                WorkflowTestHelpers.CreateJsonValidatorMock(true).Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var result = await sut.CreateWorkflowStepsAsync(workflow.ID, new SaveWorkflowStepsRequestDto
             {
                 Steps = [ 
                     new WorkflowStepItemDto
                     {
+                        StepKey = "http",
                         StepType = "http",
                         ConfigJson = oversizedJson
                     }
@@ -871,7 +950,8 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 7,
                 Name = "Trim Step Workflow",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             };
 
             db.Workflow.Add(workflow);
@@ -885,14 +965,17 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var request = new SaveWorkflowStepsRequestDto
             {
                 Steps =
                 [
                     new WorkflowStepItemDto 
-                    { 
+                    {
+                        StepKey = "   http    ",
                         StepType = "   http    ", 
                         ConfigJson = "{\"url\":\"https://example.com\"}" 
                     }
@@ -914,7 +997,8 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 7,
                 Name = "Existing Steps Workflow",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             };
 
             db.Workflow.Add(workflow);
@@ -923,6 +1007,7 @@ namespace Backend.Api.Tests.Services
             db.WorkflowStep.Add(new WorkflowStep
             {
                 WorkflowID = workflow.ID,
+                StepKey = "existing",
                 StepType = "existing",
                 ConfigJson = "{\"a\":1}",
                 StepOrder = 1
@@ -938,7 +1023,9 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var request = new SaveWorkflowStepsRequestDto
             {
@@ -946,7 +1033,8 @@ namespace Backend.Api.Tests.Services
                 [
                     new WorkflowStepItemDto
                     {
-                        StepType = "new-step",
+                        StepKey = "new_step",
+                        StepType = "new_step",
                         ConfigJson = "{\"b\":2}"
                     }
                 ]
@@ -968,7 +1056,8 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 7,
                 Name = "Invalid Step Type Workflow",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             };
 
             db.Workflow.Add(workflow);
@@ -982,7 +1071,9 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var request = new SaveWorkflowStepsRequestDto
             {
@@ -990,6 +1081,7 @@ namespace Backend.Api.Tests.Services
                 [
                     new WorkflowStepItemDto
                     {
+                        StepKey = "   ",
                         StepType = "   ",
                         ConfigJson = "{\"a\":1}"
                     }
@@ -1012,7 +1104,8 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 7,
                 Name = "Invalid Config Workflow",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             };
 
             db.Workflow.Add(workflow);
@@ -1026,7 +1119,9 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var request = new SaveWorkflowStepsRequestDto
             {
@@ -1034,6 +1129,7 @@ namespace Backend.Api.Tests.Services
                 [
                     new WorkflowStepItemDto
                     {
+                        StepKey = "http",
                         StepType = "http",
                         ConfigJson = "   "
                     }
@@ -1056,7 +1152,8 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 7,
                 Name = "Invalid Json Workflow",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             };
 
             db.Workflow.Add(workflow);
@@ -1070,7 +1167,9 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var request = new SaveWorkflowStepsRequestDto
             {
@@ -1078,6 +1177,7 @@ namespace Backend.Api.Tests.Services
                 [
                     new WorkflowStepItemDto
                     {
+                        StepKey = "http",
                         StepType = "http",
                         ConfigJson = "{invalid-json}"
                     }
@@ -1156,7 +1256,8 @@ namespace Backend.Api.Tests.Services
             {
                 UserID = 7,
                 Name = "Replace Null Workflow",
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             };
 
             db.Workflow.Add(workflow);
@@ -1165,6 +1266,7 @@ namespace Backend.Api.Tests.Services
             db.WorkflowStep.Add(new WorkflowStep
             {
                 WorkflowID = workflow.ID,
+                StepKey = "existing",
                 StepType = "existing",
                 ConfigJson = "{\"a\":1}",
                 StepOrder = 1
@@ -1180,7 +1282,9 @@ namespace Backend.Api.Tests.Services
                 db,
                 currentUserService.Object,
                 cronValidator.Object,
-                jsonValidator.Object);
+                jsonValidator.Object,
+                new TimezoneValidator(),
+                CreatePermissiveWorkflowValidator());
 
             var request = new SaveWorkflowStepsRequestDto
             {
@@ -1199,6 +1303,10 @@ namespace Backend.Api.Tests.Services
             persistedSteps.Should().ContainSingle();
             persistedSteps.Single().StepType.Should().Be("existing");
         }
+
+        private static IWorkflowValidationService CreatePermissiveWorkflowValidator() => 
+            Mock.Of<IWorkflowValidationService>(validator =>
+                validator.Validate(It.IsAny<IReadOnlyList<WorkflowStep>>(), It.IsAny<WorkflowValidationMode>()) == WorkflowValidationResult.Success);
 
         //[Fact]
         //public async Task ReplaceWorkflowStepsAsync_ShouldAllowEmptyList()

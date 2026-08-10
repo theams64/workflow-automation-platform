@@ -4,6 +4,9 @@ using Backend.Api.Models.Dtos.WorkflowStep;
 using Backend.Api.Models.Entities;
 using Backend.Api.Models.Validation;
 using Backend.Api.Services.Common;
+using Backend.Api.WorkflowEngine.Abstractions;
+using Backend.Api.WorkflowEngine.Time;
+using Backend.Api.WorkflowEngine.Validation;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -27,13 +30,17 @@ namespace Backend.Api.Services.Workflow
         private readonly ICurrentUserService _currentUserService;
         private readonly ICronExpressionValidator _cronExpressionValidator;
         private readonly IJsonValidationHelper _jsonValidationHelper;
+        private readonly ITimezoneValidator _timezoneValidator;
+        private readonly IWorkflowValidationService _workflowValidationService;
 
-        public WorkflowService(AppDbContext dbContext, ICurrentUserService currentUserService, ICronExpressionValidator cronExpressionValidator, IJsonValidationHelper jsonValidationHelper)
+        public WorkflowService(AppDbContext dbContext, ICurrentUserService currentUserService, ICronExpressionValidator cronExpressionValidator, IJsonValidationHelper jsonValidationHelper, ITimezoneValidator timezoneValidator, IWorkflowValidationService workflowValidationService)
         {
             _dbContext = dbContext;
             _currentUserService = currentUserService;
             _cronExpressionValidator = cronExpressionValidator;
             _jsonValidationHelper = jsonValidationHelper;
+            _timezoneValidator = timezoneValidator;
+            _workflowValidationService = workflowValidationService;
         }
 
         public async Task<ServiceResult<WorkflowResponseDto>> CreateWorkflowAsync(CreateWorkflowRequestDto request, CancellationToken cancellationToken = default)
@@ -50,6 +57,11 @@ namespace Backend.Api.Services.Workflow
             if (validationErrors.Count > 0)
             {
                 return ServiceResult<WorkflowResponseDto>.Fail(validationErrors);
+            }
+
+            if (request.IsEnabled == true)
+            {
+                return ServiceResult<WorkflowResponseDto>.Fail(new ServiceError("workflow.enable_requires_steps", "Create the workflow as disabled, add valid steps, and then enable it."));
             }
 
             var userId = userIdResult.Data;
@@ -70,7 +82,8 @@ namespace Backend.Api.Services.Workflow
                 Name = normalizedName,
                 IsEnabled = request.IsEnabled!.Value,
                 TriggerType = NormalizeTriggerType(request.TriggerType),
-                CronExpression = NormalizeOptionalValue(request.CronExpression)
+                CronExpression = NormalizeOptionalValue(request.CronExpression),
+                Timezone = request.Timezone.Trim()
             };
 
             _dbContext.Workflow.Add(workflow);
@@ -124,6 +137,7 @@ namespace Backend.Api.Services.Workflow
                     IsEnabled = workflow.IsEnabled,
                     TriggerType = workflow.TriggerType,
                     CronExpression = workflow.CronExpression,
+                    Timezone = workflow.Timezone,
                     CreatedAt = workflow.CreatedAt,
                     UpdatedAt = workflow.UpdatedAt
                 })
@@ -159,6 +173,7 @@ namespace Backend.Api.Services.Workflow
                     IsEnabled = candidate.IsEnabled,
                     TriggerType = candidate.TriggerType,
                     CronExpression = candidate.CronExpression,
+                    Timezone = candidate.Timezone,
                     CreatedAt = candidate.CreatedAt,
                     UpdatedAt = candidate.UpdatedAt
                 })
@@ -178,6 +193,7 @@ namespace Backend.Api.Services.Workflow
                 {
                     Id = step.ID,
                     WorkflowId = step.WorkflowID,
+                    StepKey = step.StepKey,
                     StepType = step.StepType,
                     ConfigJson = step.ConfigJson,
                     StepOrder = step.StepOrder,
@@ -216,6 +232,22 @@ namespace Backend.Api.Services.Workflow
                 return WorkflowNotFoundFailure<WorkflowResponseDto>();
             }
 
+            if (request.IsEnabled == true)
+            {
+                var steps = await _dbContext.WorkflowStep
+                    .AsNoTracking()
+                    .Where(step => step.WorkflowID == workflowId)
+                    .OrderBy(step => step.StepOrder)
+                    .ToListAsync(cancellationToken);
+
+                var executableValidation = _workflowValidationService.Validate(steps, WorkflowValidationMode.Executable);
+
+                if (!executableValidation.Succeeded)
+                {
+                    return ServiceResult<WorkflowResponseDto>.Fail(executableValidation.Errors);
+                }
+            }
+
             var nameConflict = await _dbContext.Workflow
                 .AsNoTracking()
                 .AnyAsync(candidate => candidate.UserID == userId && candidate.ID != workflowId && candidate.Name == normalizedName, cancellationToken);
@@ -229,6 +261,7 @@ namespace Backend.Api.Services.Workflow
             workflow.IsEnabled = request.IsEnabled!.Value;
             workflow.TriggerType = NormalizeTriggerType(request.TriggerType);
             workflow.CronExpression = NormalizeOptionalValue(request.CronExpression);
+            workflow.Timezone = request.Timezone.Trim();
 
             try
             {
@@ -285,6 +318,7 @@ namespace Backend.Api.Services.Workflow
                 {
                     Id = step.ID,
                     WorkflowId = step.WorkflowID,
+                    StepKey = step.StepKey,
                     StepType = step.StepType,
                     ConfigJson = step.ConfigJson,
                     StepOrder = step.StepOrder,
@@ -309,6 +343,14 @@ namespace Backend.Api.Services.Workflow
                 return ServiceResult<WorkflowStepListResponseDto>.Fail(validationErrors);
             }
 
+            var candidateSteps = BuildStepEntities(workflowId, request.Steps);
+            var compositionValidation = _workflowValidationService.Validate(candidateSteps, WorkflowValidationMode.Draft);
+
+            if (!compositionValidation.Succeeded)
+            {
+                return ServiceResult<WorkflowStepListResponseDto>.Fail(compositionValidation.Errors);
+            }
+
             var ownershipResult = await VerifyWorkflowOwnershipAsync(workflowId, cancellationToken);
 
             if (!ownershipResult.Succeeded)
@@ -325,7 +367,7 @@ namespace Backend.Api.Services.Workflow
                 return StepsAlreadyExistFailure();
             }
 
-            var entities = BuildStepEntities(workflowId, request.Steps);
+            var entities = candidateSteps;
             _dbContext.WorkflowStep.AddRange(entities);
 
             try
@@ -349,6 +391,14 @@ namespace Backend.Api.Services.Workflow
                 return ServiceResult<WorkflowStepListResponseDto>.Fail(validationErrors);
             }
 
+            var candidateSteps = BuildStepEntities(workflowId, request.Steps);
+            var compositionValidation = _workflowValidationService.Validate(candidateSteps, WorkflowValidationMode.Draft);
+
+            if (!compositionValidation.Succeeded)
+            {
+                return ServiceResult<WorkflowStepListResponseDto>.Fail(compositionValidation.Errors);
+            }
+
             var ownershipResult = await VerifyWorkflowOwnershipAsync(workflowId, cancellationToken);
 
             if (!ownershipResult.Succeeded)
@@ -356,7 +406,7 @@ namespace Backend.Api.Services.Workflow
                 return ServiceResult<WorkflowStepListResponseDto>.Fail(ownershipResult.Errors);
             }
 
-            var replacementSteps = BuildStepEntities(workflowId, request.Steps);
+            var replacementSteps = candidateSteps;
 
             await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
 
@@ -436,15 +486,15 @@ namespace Backend.Api.Services.Workflow
 
         private List<ServiceError> ValidateWorkflowRequest(CreateWorkflowRequestDto request)
         {
-            return ValidateWorkflowValues(request.Name, request.IsEnabled, request.TriggerType, request.CronExpression);
+            return ValidateWorkflowValues(request.Name, request.IsEnabled, request.TriggerType, request.CronExpression, request.Timezone);
         }
 
         private List<ServiceError> ValidateWorkflowRequest(UpdateWorkflowRequestDto request)
         {
-            return ValidateWorkflowValues(request.Name, request.IsEnabled, request.TriggerType, request.CronExpression);
+            return ValidateWorkflowValues(request.Name, request.IsEnabled, request.TriggerType, request.CronExpression, request.Timezone);
         }
 
-        private List<ServiceError> ValidateWorkflowValues(string? name, bool? isEnabled, string? triggerType, string? cronExpression)
+        private List<ServiceError> ValidateWorkflowValues(string? name, bool? isEnabled, string? triggerType, string? cronExpression, string? timezone)
         {
             var errors = new List<ServiceError>();
 
@@ -488,6 +538,19 @@ namespace Backend.Api.Services.Workflow
                 {
                     errors.Add(new ServiceError("workflow.cron_invalid", "Cron expression is invalid."));
                 }
+            }
+
+            if (string.IsNullOrWhiteSpace(timezone))
+            {
+                errors.Add(new ServiceError("workflow.timezone_required", "Workflow timezone is required."));
+            }
+            else if (timezone.Trim().Length > WorkflowLimits.TimezoneMaxLength)
+            {
+                errors.Add(new ServiceError("workflow.timezone_too_long", $"Workflow timezone cannot exceed {WorkflowLimits.TimezoneMaxLength} characters."));
+            }
+            else if (!_timezoneValidator.IsValid(timezone.Trim()))
+            {
+                errors.Add(new ServiceError("workflow.timezone_invalid", "Workflow timezone is invalid."));
             }
 
             return errors;
@@ -538,6 +601,20 @@ namespace Backend.Api.Services.Workflow
                 var step = request.Steps[i];
                 var stepNumber = i + 1;
 
+                if (string.IsNullOrWhiteSpace(step.StepKey))
+                {
+                    errors.Add(new ServiceError("workflow_step.key_required", $"Step {stepNumber}: key is required."));
+                }
+                else
+                {
+                    var normalizedKey = step.StepKey.Trim().ToLowerInvariant();
+
+                    if (!StepKeyValidator.IsValid(normalizedKey))
+                    {
+                        errors.Add(new ServiceError("workflow_step.key_invalid", $"Step {stepNumber}: key must start with a lowercase letter and contain only lowercase letters, numbers, or underscores."));
+                    }
+                }
+
                 if (string.IsNullOrWhiteSpace(step.StepType))
                 {
                     errors.Add(new ServiceError("workflow_step.type_required", $"Step {stepNumber}: type is required."));
@@ -567,6 +644,16 @@ namespace Backend.Api.Services.Workflow
                 }
             }
 
+            var duplicateKey = request.Steps
+                .Where(step => !string.IsNullOrWhiteSpace(step.StepKey))
+                .GroupBy(step => step.StepKey.Trim().ToLowerInvariant(), StringComparer.Ordinal)
+                .FirstOrDefault(group => group.Count() > 1);
+
+            if (duplicateKey is not null)
+            {
+                errors.Add(new ServiceError("workflow_step.key_duplicate", "Workflow step keys must be unique."));
+            }
+
             return errors;
         }
 
@@ -581,6 +668,7 @@ namespace Backend.Api.Services.Workflow
                 steps.Add(new WorkflowStep
                 {
                     WorkflowID = workflowId,
+                    StepKey = requestStep.StepKey.Trim().ToLowerInvariant(),
                     StepOrder = i + 1,
                     StepType = requestStep.StepType.Trim(),
                     ConfigJson = requestStep.ConfigJson.Trim()
@@ -611,6 +699,7 @@ namespace Backend.Api.Services.Workflow
                 IsEnabled = workflow.IsEnabled,
                 TriggerType = workflow.TriggerType,
                 CronExpression = workflow.CronExpression,
+                Timezone = workflow.Timezone,
                 CreatedAt = workflow.CreatedAt,
                 UpdatedAt = workflow.UpdatedAt
             };
@@ -622,6 +711,7 @@ namespace Backend.Api.Services.Workflow
             {
                 Id = step.ID,
                 WorkflowId = step.WorkflowID,
+                StepKey = step.StepKey,
                 StepType = step.StepType,
                 ConfigJson = step.ConfigJson,
                 StepOrder = step.StepOrder,

@@ -7,6 +7,7 @@
         public bool IsEnabled { get; set; } = default!;
         public string? TriggerType { get; set; }
         public string? CronExpression { get; set; }
+        public string Timezone { get; set; } = default!;
         public DateTimeOffset CreatedAt { get; set; }
         public DateTimeOffset UpdatedAt { get; set; }
     }

@@ -33,7 +33,8 @@ namespace Backend.Api.Tests.Integration
                 Name = "No Auth Workflow",
                 IsEnabled = true,
                 TriggerType = "schedule",
-                CronExpression = "0 0 * * *"
+                CronExpression = "0 0 * * *",
+                Timezone = "UTC"
             };
 
             var response = await client.PostAsJsonAsync("/workflow", request);
@@ -50,9 +51,10 @@ namespace Backend.Api.Tests.Integration
             var createRequest = new CreateWorkflowRequestDto
             {
                 Name = "Nightly Workflow",
-                IsEnabled = true,
+                IsEnabled = false,
                 TriggerType = "schedule",
-                CronExpression = "0 0 * * *"
+                CronExpression = "0 0 * * *",
+                Timezone = "UTC"
             };
 
             var createResponse = await client.PostAsJsonAsync("/workflow", createRequest);
@@ -92,7 +94,8 @@ namespace Backend.Api.Tests.Integration
                 Name = "Updated Nightly Workflow",
                 IsEnabled = false,
                 TriggerType = "schedule",
-                CronExpression = "*/5 * * * *"
+                CronExpression = "*/5 * * * *",
+                Timezone = "UTC"
             };
 
             var updateResponse = await client.PutAsJsonAsync($"/workflow/{createdWorkflow.Id}", updateRequest);
@@ -131,7 +134,8 @@ namespace Backend.Api.Tests.Integration
                 {
                     UserID = 1,
                     Name = "Other User Workflow",
-                    IsEnabled = true
+                    IsEnabled = true,
+                    Timezone = "UTC"
                 };
 
                 db.Workflow.Add(workflow);
@@ -209,8 +213,9 @@ namespace Backend.Api.Tests.Integration
                 new CreateWorkflowRequestDto
                 {
                     Name = "Identity Owned Workflow",
-                    IsEnabled = true,
-                    TriggerType = "manual"
+                    IsEnabled = false,
+                    TriggerType = "manual",
+                    Timezone = "UTC"
                 });
 
             response.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -242,7 +247,8 @@ namespace Backend.Api.Tests.Integration
                 {
                     UserID = 1,
                     Name = "Workflow With Steps",
-                    IsEnabled = true
+                    IsEnabled = true,
+                    Timezone = "UTC"
                 };
 
                 db.Workflow.Add(workflow);
@@ -257,16 +263,19 @@ namespace Backend.Api.Tests.Integration
                 [
                     new WorkflowStepItemDto
                     {
+                        StepKey = "http",
                         StepType = "http",
                         ConfigJson = "{\"url\":\"https://example.com/1\"}"
                     },
                     new WorkflowStepItemDto
                     {
+                        StepKey = "email",
                         StepType = "email",
                         ConfigJson = "{\"to\":\"a@example.com\"}"
                     },
                     new WorkflowStepItemDto
                     {
+                        StepKey = "delay",
                         StepType = "delay",
                         ConfigJson = "{\"seconds\":30}"
                     }
@@ -316,7 +325,8 @@ namespace Backend.Api.Tests.Integration
                 {
                     UserID = 1,
                     Name = "Private Workflow",
-                    IsEnabled = true
+                    IsEnabled = true,
+                    Timezone = "UTC"
                 };
 
                 db.Workflow.Add(workflow);
@@ -332,6 +342,7 @@ namespace Backend.Api.Tests.Integration
                 Steps = [
                     new WorkflowStepItemDto
                     {
+                        StepKey = "http",
                         StepType = "http",
                         ConfigJson = "{}"
                     }
@@ -368,10 +379,12 @@ namespace Backend.Api.Tests.Integration
                     UserID = 1,
                     Name = "Cascade Workflow",
                     IsEnabled = true,
+                    Timezone = "UTC",
                     WorkflowSteps = [
                         new WorkflowStep
                         {
                             WorkflowID = 1,
+                            StepKey = "first",
                             StepType = "first",
                             ConfigJson = "{}",
                             StepOrder = 1
@@ -379,6 +392,7 @@ namespace Backend.Api.Tests.Integration
                         new WorkflowStep
                         {
                             WorkflowID = 1,
+                            StepKey = "second",
                             StepType = "second",
                             ConfigJson = "{}",
                             StepOrder = 2
@@ -426,18 +440,21 @@ namespace Backend.Api.Tests.Integration
                     UserID = 1,
                     Name = "Replacement Workflow",
                     IsEnabled = true,
+                    Timezone = "UTC",
                     WorkflowSteps = [
                         new WorkflowStep
                         {
                             WorkflowID = 1,
-                            StepType = "old-a",
+                            StepKey = "old_a",
+                            StepType = "http",
                             ConfigJson = "{}",
                             StepOrder = 1
                         },
                         new WorkflowStep
                         {
                             WorkflowID = 1,
-                            StepType = "old-b",
+                            StepKey = "old_b",
+                            StepType = "delay",
                             ConfigJson = "{}",
                             StepOrder = 2
                         }
@@ -456,17 +473,20 @@ namespace Backend.Api.Tests.Integration
                     Steps = [
                         new WorkflowStepItemDto
                         {
-                            StepType = "new-a",
+                            StepKey = "new_a",
+                            StepType = "http",
                             ConfigJson = """{"value":1}"""
                         },
                         new WorkflowStepItemDto
                         {
-                            StepType = "new-b",
+                            StepKey = "new_b",
+                            StepType = "delay",
                             ConfigJson = """{"value":2}"""
                         },
                         new WorkflowStepItemDto
                         {
-                            StepType = "new-c",
+                            StepKey = "new_c",
+                            StepType = "email",
                             ConfigJson = """{"value":3}"""
                         }
                     ]
@@ -484,7 +504,8 @@ namespace Backend.Api.Tests.Integration
                     .ToListAsync();
 
             persistedSteps.Select(step => step.StepOrder).Should().Equal(1, 2, 3);
-            persistedSteps.Select(step => step.StepType).Should().Equal("new-a", "new-b", "new-c");
+            persistedSteps.Select(step => step.StepType).Should().Equal("http", "delay", "email");
+            persistedSteps.Select(step => step.StepKey).Should().Equal("new_a", "new_b", "new_c");
         }
 
         [Fact]
@@ -498,7 +519,8 @@ namespace Backend.Api.Tests.Integration
 
             var workflowId = await SeedWorkflowAsync(userId, "Replace Empty Workflow",
                 (
-                    StepType: "existing",
+                    StepKey: "existing",
+                    StepType: "http",
                     ConfigJson: """{"a":1}""",
                     StepOrder: 1
                 ));
@@ -565,12 +587,14 @@ namespace Backend.Api.Tests.Integration
 
             var workflowId = await SeedWorkflowAsync(userId, "Delete Steps Workflow",
                 (
-                    StepType: "a",
+                    StepKey: "a",
+                    StepType: "http",
                     ConfigJson: """{"a":1}""",
                     StepOrder: 1
                 ),
                 (
-                    StepType: "b",
+                    StepKey: "b",
+                    StepType: "delay",
                     ConfigJson: """{"b":2}""",
                     StepOrder: 2
                 ));
@@ -604,12 +628,14 @@ namespace Backend.Api.Tests.Integration
 
             var workflowId = await SeedWorkflowAsync(userId, "Replace Workflow",
                 (
-                    StepType: "old-1",
+                    StepKey: "old_1", 
+                    StepType: "http",
                     ConfigJson: """{"a":1}""",
                     StepOrder: 1
                 ),
                 (
-                    StepType: "old-2",
+                    StepKey: "old_2",
+                    StepType: "delay",
                     ConfigJson: """{"b":2}""",
                     StepOrder: 2
                 ));
@@ -619,17 +645,20 @@ namespace Backend.Api.Tests.Integration
                 Steps = [
                     new WorkflowStepItemDto
                     {
-                        StepType = "new-1",
+                        StepKey = "new_1",
+                        StepType = "http",
                         ConfigJson = """{"x":1}"""
                     },
                     new WorkflowStepItemDto
                     {
-                        StepType = "new-2",
+                        StepKey = "new_2",
+                        StepType = "delay",
                         ConfigJson = """{"y":2}"""
                     },
                     new WorkflowStepItemDto
                     {
-                        StepType = "new-3",
+                        StepKey = "new_3",
+                        StepType = "email",
                         ConfigJson = """{"z":3}"""
                     }
                 ]
@@ -643,7 +672,8 @@ namespace Backend.Api.Tests.Integration
 
             payload.Should().NotBeNull();
             payload!.WorkflowId.Should().Be(workflowId);
-            payload.Steps.Select(step => step.StepType).Should().Equal("new-1", "new-2", "new-3");
+            payload.Steps.Select(step => step.StepType).Should().Equal("http", "delay", "email");
+            payload.Steps.Select(step => step.StepKey).Should().Equal("new_1", "new_2", "new_3");
             payload.Steps.Select(step => step.StepOrder).Should().Equal(1, 2, 3);
 
             using var verificationScope = _factory.Services.CreateScope();
@@ -656,12 +686,13 @@ namespace Backend.Api.Tests.Integration
                 .ToListAsync();
 
             savedSteps.Should().HaveCount(3);
-            savedSteps.Select(step => step.StepType).Should().Equal("new-1", "new-2", "new-3");
+            savedSteps.Select(step => step.StepType).Should().Equal("http", "delay", "email");
+            savedSteps.Select(step => step.StepKey).Should().Equal("new_1", "new_2", "new_3");
             savedSteps.Select(step => step.StepOrder).Should().Equal(1, 2, 3);
-            savedSteps.Should().NotContain(step => step.StepType == "old-1" || step.StepType == "old-2");
+            savedSteps.Should().NotContain(step => step.StepKey == "old_1" || step.StepKey == "old_2");
         }
 
-        private async Task<int> SeedWorkflowAsync(int userId, string name, params (string StepType, string ConfigJson, int StepOrder)[] steps)
+        private async Task<int> SeedWorkflowAsync(int userId, string name, params (string StepKey, string StepType, string ConfigJson, int StepOrder)[] steps)
         {
             using var scope = _factory.Services.CreateScope();
 
@@ -671,7 +702,8 @@ namespace Backend.Api.Tests.Integration
             {
                 UserID = userId,
                 Name = name,
-                IsEnabled = true
+                IsEnabled = true,
+                Timezone = "UTC"
             };
 
             db.Workflow.Add(workflow);
@@ -682,6 +714,7 @@ namespace Backend.Api.Tests.Integration
                 var workflowSteps = steps.Select(step => new WorkflowStep
                 {
                     WorkflowID = workflow.ID,
+                    StepKey = step.StepKey,
                     StepType = step.StepType,
                     ConfigJson = step.ConfigJson,
                     StepOrder = step.StepOrder

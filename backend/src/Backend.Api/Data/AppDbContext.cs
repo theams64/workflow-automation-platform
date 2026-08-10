@@ -1,20 +1,25 @@
-﻿using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore;
-using Backend.Api.Models.Entities;
+﻿using Backend.Api.Models.Entities;
 using Backend.Api.Models.Entities.Common;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Api.Data
 {
     public sealed class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<int>, int>
     {
-        public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+        private readonly TimeProvider _timeProvider;
+        
+        public AppDbContext(DbContextOptions<AppDbContext> options, TimeProvider? timeProvider = null) : base(options) 
+        {
+            _timeProvider = timeProvider ?? TimeProvider.System;
+        }
 
         public DbSet<UserProfile> UserProfile => Set<UserProfile>();
-        public DbSet<Workflow> Workflow { get; set; }
-        public DbSet<WorkflowStep> WorkflowStep { get; set; }
-        public DbSet<WorkflowRun> WorkflowRun { get; set; }
-        public DbSet<StepRun> StepRun { get; set; }
+        public DbSet<Workflow> Workflow => Set<Workflow>();
+        public DbSet<WorkflowStep> WorkflowStep => Set<WorkflowStep>();
+        public DbSet<WorkflowExecution> WorkflowExecution => Set<WorkflowExecution>();
+        public DbSet<StepExecution> StepExecution => Set<StepExecution>();
         public DbSet<RefreshToken> RefreshToken => Set<RefreshToken>();
 
         protected override void OnModelCreating(ModelBuilder builder)
@@ -37,7 +42,7 @@ namespace Backend.Api.Data
 
         public void ApplyAuditInfo()
         {
-            var now = DateTimeOffset.UtcNow;
+            var now = _timeProvider.GetUtcNow();
 
             foreach (var entry in ChangeTracker.Entries<IAuditable>())
             {

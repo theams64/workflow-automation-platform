@@ -17,7 +17,7 @@ namespace Backend.Api.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.3")
+                .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -161,59 +161,82 @@ namespace Backend.Api.Migrations
                     b.ToTable("refresh_token", (string)null);
                 });
 
-            modelBuilder.Entity("Backend.Api.Models.Entities.StepRun", b =>
+            modelBuilder.Entity("Backend.Api.Models.Entities.StepExecution", b =>
                 {
-                    b.Property<int>("ID")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
+                    b.Property<Guid>("ID")
+                        .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ID"));
-
-                    b.Property<int>("Attempt")
-                        .HasColumnType("integer")
-                        .HasColumnName("attempt");
-
-                    b.Property<string>("Error")
-                        .HasColumnType("text")
-                        .HasColumnName("error");
-
-                    b.Property<DateTimeOffset?>("FinishedAt")
+                    b.Property<DateTimeOffset?>("CompletedAt")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("finished_at");
+                        .HasColumnName("completed_at");
 
-                    b.Property<string>("InputJson")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("input_json");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("error_code");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("error_message");
 
                     b.Property<string>("OutputJson")
-                        .HasColumnType("text")
+                        .HasColumnType("jsonb")
                         .HasColumnName("output_json");
 
-                    b.Property<DateTimeOffset>("StartedAt")
+                    b.Property<DateTimeOffset?>("StartedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("started_at");
 
                     b.Property<string>("Status")
-                        .HasColumnType("text")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
                         .HasColumnName("status");
 
-                    b.Property<int>("WorkflowRunID")
-                        .HasColumnType("integer")
-                        .HasColumnName("workflow_run_id");
+                    b.Property<string>("StepKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("step_key");
 
-                    b.Property<int>("WorkflowStepID")
+                    b.Property<int>("StepOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("step_order");
+
+                    b.Property<string>("StepType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("step_type");
+
+                    b.Property<Guid>("WorkflowExecutionID")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workflow_execution_id");
+
+                    b.Property<int?>("WorkflowStepID")
                         .HasColumnType("integer")
                         .HasColumnName("workflow_step_id");
 
                     b.HasKey("ID");
 
-                    b.HasIndex("WorkflowRunID");
-
                     b.HasIndex("WorkflowStepID");
 
-                    b.ToTable("step_run");
+                    b.HasIndex("WorkflowExecutionID", "StepKey")
+                        .IsUnique();
+
+                    b.HasIndex("WorkflowExecutionID", "StepOrder")
+                        .IsUnique();
+
+                    b.ToTable("step_execution", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_step_execution_status", "status IN ('pending','running','succeeded','failed','cancelled')");
+                        });
                 });
 
             modelBuilder.Entity("Backend.Api.Models.Entities.UserProfile", b =>
@@ -263,8 +286,8 @@ namespace Backend.Api.Migrations
                         .HasColumnName("created_at");
 
                     b.Property<string>("CronExpression")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("cron_expression");
 
                     b.Property<bool>("IsEnabled")
@@ -276,6 +299,12 @@ namespace Backend.Api.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
+
+                    b.Property<string>("Timezone")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("timezone");
 
                     b.Property<string>("TriggerType")
                         .HasMaxLength(50)
@@ -298,34 +327,68 @@ namespace Backend.Api.Migrations
                     b.ToTable("workflow", (string)null);
                 });
 
-            modelBuilder.Entity("Backend.Api.Models.Entities.WorkflowRun", b =>
+            modelBuilder.Entity("Backend.Api.Models.Entities.WorkflowExecution", b =>
                 {
-                    b.Property<int>("ID")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
+                    b.Property<Guid>("ID")
+                        .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ID"));
-
-                    b.Property<DateTimeOffset?>("FinishedAt")
+                    b.Property<DateTimeOffset?>("CompletedAt")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("finished_at");
+                        .HasColumnName("completed_at");
 
-                    b.Property<string>("InputPayload")
-                        .HasColumnType("text")
-                        .HasColumnName("input_payload");
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
-                    b.Property<DateTimeOffset>("StartedAt")
+                    b.Property<DateOnly>("EffectiveDate")
+                        .HasColumnType("date")
+                        .HasColumnName("effective_date");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("error_code");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("error_message");
+
+                    b.Property<int>("InitiatingUserID")
+                        .HasColumnType("integer")
+                        .HasColumnName("initiating_user_id");
+
+                    b.Property<string>("InputJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("input_json");
+
+                    b.Property<DateTimeOffset?>("ScheduledFor")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("scheduled_for");
+
+                    b.Property<DateTimeOffset?>("StartedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("started_at");
 
                     b.Property<string>("Status")
-                        .HasColumnType("text")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
                         .HasColumnName("status");
 
-                    b.Property<string>("TriggeredBy")
-                        .HasColumnType("text")
-                        .HasColumnName("triggered_by");
+                    b.Property<string>("Timezone")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("timezone");
+
+                    b.Property<string>("TriggerType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("trigger_type");
 
                     b.Property<int>("WorkflowID")
                         .HasColumnType("integer")
@@ -333,9 +396,16 @@ namespace Backend.Api.Migrations
 
                     b.HasKey("ID");
 
-                    b.HasIndex("WorkflowID");
+                    b.HasIndex("Status");
 
-                    b.ToTable("workflow_run");
+                    b.HasIndex("InitiatingUserID", "CreatedAt");
+
+                    b.HasIndex("WorkflowID", "CreatedAt");
+
+                    b.ToTable("workflow_execution", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_workflow_execution_status", "status IN ('pending','running','succeeded','failed','cancelled')");
+                        });
                 });
 
             modelBuilder.Entity("Backend.Api.Models.Entities.WorkflowStep", b =>
@@ -356,6 +426,12 @@ namespace Backend.Api.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<string>("StepKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("step_key");
+
                     b.Property<int>("StepOrder")
                         .HasColumnType("integer")
                         .HasColumnName("step_order");
@@ -375,6 +451,9 @@ namespace Backend.Api.Migrations
                         .HasColumnName("workflow_id");
 
                     b.HasKey("ID");
+
+                    b.HasIndex("WorkflowID", "StepKey")
+                        .IsUnique();
 
                     b.HasIndex("WorkflowID", "StepOrder")
                         .IsUnique();
@@ -552,21 +631,20 @@ namespace Backend.Api.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("Backend.Api.Models.Entities.StepRun", b =>
+            modelBuilder.Entity("Backend.Api.Models.Entities.StepExecution", b =>
                 {
-                    b.HasOne("Backend.Api.Models.Entities.WorkflowRun", "WorkflowRun")
-                        .WithMany()
-                        .HasForeignKey("WorkflowRunID")
+                    b.HasOne("Backend.Api.Models.Entities.WorkflowExecution", "WorkflowExecution")
+                        .WithMany("StepExecutions")
+                        .HasForeignKey("WorkflowExecutionID")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.HasOne("Backend.Api.Models.Entities.WorkflowStep", "WorkflowStep")
-                        .WithMany()
+                        .WithMany("StepExecutions")
                         .HasForeignKey("WorkflowStepID")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.SetNull);
 
-                    b.Navigation("WorkflowRun");
+                    b.Navigation("WorkflowExecution");
 
                     b.Navigation("WorkflowStep");
                 });
@@ -593,13 +671,21 @@ namespace Backend.Api.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("Backend.Api.Models.Entities.WorkflowRun", b =>
+            modelBuilder.Entity("Backend.Api.Models.Entities.WorkflowExecution", b =>
                 {
-                    b.HasOne("Backend.Api.Models.Entities.Workflow", "Workflow")
+                    b.HasOne("Backend.Api.Models.Entities.ApplicationUser", "InitiatingUser")
                         .WithMany()
+                        .HasForeignKey("InitiatingUserID")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Api.Models.Entities.Workflow", "Workflow")
+                        .WithMany("WorkflowExecutions")
                         .HasForeignKey("WorkflowID")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("InitiatingUser");
 
                     b.Navigation("Workflow");
                 });
@@ -668,7 +754,19 @@ namespace Backend.Api.Migrations
 
             modelBuilder.Entity("Backend.Api.Models.Entities.Workflow", b =>
                 {
+                    b.Navigation("WorkflowExecutions");
+
                     b.Navigation("WorkflowSteps");
+                });
+
+            modelBuilder.Entity("Backend.Api.Models.Entities.WorkflowExecution", b =>
+                {
+                    b.Navigation("StepExecutions");
+                });
+
+            modelBuilder.Entity("Backend.Api.Models.Entities.WorkflowStep", b =>
+                {
+                    b.Navigation("StepExecutions");
                 });
 #pragma warning restore 612, 618
         }

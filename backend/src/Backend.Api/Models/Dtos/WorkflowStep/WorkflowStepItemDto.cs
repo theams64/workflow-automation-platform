@@ -6,6 +6,10 @@ namespace Backend.Api.Models.Dtos.WorkflowStep
     public sealed class WorkflowStepItemDto
     {
         [Required]
+        [MaxLength(WorkflowLimits.StepKeyMaxLength)]
+        public string StepKey { get; set; } = default!;
+
+        [Required]
         [MaxLength(WorkflowLimits.StepTypeMaxLength)]
         public string StepType { get; set; } = default!;
 

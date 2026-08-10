@@ -6,6 +6,13 @@ using Backend.Api.Models.Entities;
 using Backend.Api.Services.Auth;
 using Backend.Api.Services.Common;
 using Backend.Api.Services.Workflow;
+using Backend.Api.Services.WorkflowExecution;
+using Backend.Api.WorkflowEngine.Abstractions;
+using Backend.Api.WorkflowEngine.Execution;
+using Backend.Api.WorkflowEngine.References;
+using Backend.Api.WorkflowEngine.Registry;
+using Backend.Api.WorkflowEngine.Time;
+using Backend.Api.WorkflowEngine.Validation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -78,6 +85,14 @@ builder.Services
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
+// Workflow Execution configuration
+builder.Services
+    .AddOptions<WorkflowExecutionOptions>()
+    .Bind(configuration.GetSection(WorkflowExecutionOptions.SectionName))
+    .ValidateDataAnnotations()
+    .Validate(options => options.WorkflowTimeoutSeconds >= options.StepTimeoutSeconds, "Workflow timeout must be greater than or equal to step timeout.")
+    .ValidateOnStart();
+
 // JWT Authentication
 builder.Services
     .AddAuthentication(options =>
@@ -133,10 +148,15 @@ builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 // Request rate limiting
 builder.Services.AddApiRateLimiting(configuration);
 
-// Time provider
-builder.Services.AddSingleton(TimeProvider.System);
-
 // Application Services
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<IClock, SystemClock>();
+builder.Services.AddSingleton<ITimezoneValidator, TimezoneValidator>();
+builder.Services.AddSingleton<IExecutionDateResolver, ExecutionDateResolver>();
+builder.Services.AddSingleton<IDateRangeResolver, DateRangeResolver>();
+builder.Services.AddSingleton<IWorkflowReferenceParser, WorkflowReferenceParser>();
+
+// Scoped Services
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -144,6 +164,10 @@ builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<ICronExpressionValidator, CronExpressionValidator>();
 builder.Services.AddScoped<IJsonValidationHelper, JsonValidationHelper>();
 builder.Services.AddScoped<IWorkflowService, WorkflowService>();
+builder.Services.AddScoped<IStepExecutorRegistry, StepExecutorRegistry>();
+builder.Services.AddScoped<IWorkflowValidationService, WorkflowValidationService>();
+builder.Services.AddScoped<IWorkflowRunner, WorkflowRunner>();
+builder.Services.AddScoped<IWorkflowExecutionService, WorkflowExecutionService>();
 
 // HSTS
 builder.Services.AddHsts(options =>

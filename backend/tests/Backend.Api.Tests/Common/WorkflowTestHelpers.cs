@@ -1,12 +1,10 @@
 ﻿using Backend.Api.Data;
-using Backend.Api.Models.Entities;
 using Backend.Api.Services.Common;
+using Backend.Api.WorkflowEngine.Time;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using Moq;
 using System.IdentityModel.Tokens.Jwt;
-using System.Net;
 using System.Security.Claims;
 using System.Text;
 
@@ -14,7 +12,7 @@ namespace Backend.Api.Tests.Common
 {
     public static class WorkflowTestHelpers
     {
-        public static AppDbContext CreateInMemoryDbContext(string? databaseName = null)
+        public static AppDbContext CreateInMemoryDbContext(string? databaseName = null, TimeProvider? timeProvider = null)
         {
             databaseName ??= Guid.NewGuid().ToString();
 
@@ -22,7 +20,7 @@ namespace Backend.Api.Tests.Common
                 .UseInMemoryDatabase(databaseName)
                 .Options;
 
-            return new AppDbContext(options);
+            return new AppDbContext(options, timeProvider);
         }
 
         public static Mock<ICurrentUserService> CreateCurrentUserServiceMock(int userId = 1)
@@ -68,5 +66,10 @@ namespace Backend.Api.Tests.Common
 
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
+    }
+
+    public sealed class FakeClock(DateTimeOffset utcNow) : IClock
+    {
+        public DateTimeOffset UtcNow { get; set; } = utcNow;
     }
 }
