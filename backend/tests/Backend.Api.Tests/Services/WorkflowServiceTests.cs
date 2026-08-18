@@ -726,6 +726,50 @@ namespace Backend.Api.Tests.Services
         }
 
         [Fact]
+        public async Task CreateWorkflowStepsAsync_ShouldCheckOwnershipBeforeCompositionValidation()
+        {
+            await using var db = WorkflowTestHelpers.CreateInMemoryDbContext();
+
+            db.Workflow.Add(new Workflow
+            {
+                ID = 1,
+                UserID = 99,
+                Name = "Other user's workflow",
+                IsEnabled = false,
+                Timezone = "UTC"
+            });
+            await db.SaveChangesAsync();
+
+            var workflowValidation = new Mock<IWorkflowValidationService>(MockBehavior.Strict);
+
+            var sut = new WorkflowService(
+                db,
+                WorkflowTestHelpers.CreateCurrentUserServiceMock(7).Object,
+                WorkflowTestHelpers.CreateCronValidatorMock().Object,
+                WorkflowTestHelpers.CreateJsonValidatorMock().Object,
+                new TimezoneValidator(),
+                workflowValidation.Object);
+
+            var request = new SaveWorkflowStepsRequestDto
+            {
+                Steps = [
+                    new WorkflowStepItemDto
+                    {
+                        StepKey = "fetch",
+                        StepType = "http.level1",
+                        ConfigJson = """{"originId":"private-catalog-name","path":"/"}"""
+                    }
+                ]
+            };
+
+            var result = await sut.CreateWorkflowStepsAsync(1, request);
+
+            result.Succeeded.Should().BeFalse();
+            result.Errors.Should().ContainSingle(error => error.Code == "workflow.not_found");
+            workflowValidation.VerifyNoOtherCalls();
+        }
+
+        [Fact]
         public async Task CreateWorkflowStepsAsync_ShouldFail_WhenStepsIsNull()
         {
             await using var db = WorkflowTestHelpers.CreateInMemoryDbContext();
@@ -1246,6 +1290,50 @@ namespace Backend.Api.Tests.Services
         //    saved.Should().HaveCount(3);
         //    saved.Select(x => x.StepType).Should().Equal("new-1", "new-2", "new-3");
         //}
+
+        [Fact]
+        public async Task ReplaceWorkflowStepsAsync_ShouldCheckOwnershipBeforeCompositionValidation()
+        {
+            await using var db = WorkflowTestHelpers.CreateInMemoryDbContext();
+
+            db.Workflow.Add(new Workflow
+            {
+                ID = 1,
+                UserID = 99,
+                Name = "Other user's workflow",
+                IsEnabled = false,
+                Timezone = "UTC"
+            });
+            await db.SaveChangesAsync();
+
+            var workflowValidation = new Mock<IWorkflowValidationService>(MockBehavior.Strict);
+
+            var sut = new WorkflowService(
+                db,
+                WorkflowTestHelpers.CreateCurrentUserServiceMock(7).Object,
+                WorkflowTestHelpers.CreateCronValidatorMock().Object,
+                WorkflowTestHelpers.CreateJsonValidatorMock().Object,
+                new TimezoneValidator(),
+                workflowValidation.Object);
+
+            var request = new SaveWorkflowStepsRequestDto
+            {
+                Steps = [
+                    new WorkflowStepItemDto
+                    {
+                        StepKey = "fetch",
+                        StepType = "http.level1",
+                        ConfigJson = """{"originId":"private-catalog-name","path":"/"}"""
+                    }
+                ]
+            };
+
+            var result = await sut.ReplaceWorkflowStepsAsync(1, request);
+
+            result.Succeeded.Should().BeFalse();
+            result.Errors.Should().ContainSingle(error => error.Code == "workflow.not_found");
+            workflowValidation.VerifyNoOtherCalls();
+        }
 
         [Fact]
         public async Task ReplaceWorkflowStepsAsync_ShouldFail_WhenStepsIsNull()

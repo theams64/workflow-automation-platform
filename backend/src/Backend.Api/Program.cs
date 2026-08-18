@@ -3,12 +3,15 @@ using Backend.Api.Data;
 using Backend.Api.Infrastructure.Errors;
 using Backend.Api.Infrastructure.RateLimiting;
 using Backend.Api.Models.Entities;
+using Backend.Api.Models.Validation;
 using Backend.Api.Services.Auth;
 using Backend.Api.Services.Common;
 using Backend.Api.Services.Workflow;
 using Backend.Api.Services.WorkflowExecution;
 using Backend.Api.WorkflowEngine.Abstractions;
 using Backend.Api.WorkflowEngine.Execution;
+using Backend.Api.WorkflowEngine.Http;
+using Backend.Api.WorkflowEngine.Http.Level1;
 using Backend.Api.WorkflowEngine.References;
 using Backend.Api.WorkflowEngine.Registry;
 using Backend.Api.WorkflowEngine.Time;
@@ -93,6 +96,27 @@ builder.Services
     .Validate(options => options.WorkflowTimeoutSeconds >= options.StepTimeoutSeconds, "Workflow timeout must be greater than or equal to step timeout.")
     .ValidateOnStart();
 
+builder.Services
+    .AddOptions<SafeHttpOptions>()
+    .Bind(configuration.GetSection(SafeHttpOptions.SectionName))
+    .ValidateDataAnnotations()
+    .Validate(options => options.MaxCompressedResponseBytes <= WorkflowLimits.HttpMaximumCompressedResponseBytes, "SafeHttp compressed-response limit is invalid.")
+    .Validate(options => options.MaxDecompressedResponseBytes <= WorkflowLimits.NormalizedOutputMaxBytes - (32 * 1024), "SafeHttp decompressed responses must leave room for the normalized output envelope.")
+    .Validate(
+        options =>
+            options.PerUserConcurrencyLimit <= options.GlobalConcurrencyLimit &&
+            options.PerWorkflowConcurrencyLimit <= options.GlobalConcurrencyLimit &&
+            options.PerOriginConcurrencyLimit <= options.GlobalConcurrencyLimit,
+        "SafeHttp concurrency limits are inconsistent.")
+    .ValidateOnStart();
+
+builder.Services.AddSingleton<IValidateOptions<ApprovedHttpOriginsOptions>, ApprovedHttpOriginsOptionsValidator>();
+
+builder.Services
+    .AddOptions<ApprovedHttpOriginsOptions>()
+    .Bind(configuration.GetSection(ApprovedHttpOriginsOptions.SectionName))
+    .ValidateOnStart();
+
 // JWT Authentication
 builder.Services
     .AddAuthentication(options =>
@@ -155,6 +179,12 @@ builder.Services.AddSingleton<ITimezoneValidator, TimezoneValidator>();
 builder.Services.AddSingleton<IExecutionDateResolver, ExecutionDateResolver>();
 builder.Services.AddSingleton<IDateRangeResolver, DateRangeResolver>();
 builder.Services.AddSingleton<IWorkflowReferenceParser, WorkflowReferenceParser>();
+builder.Services.AddSingleton<IWorkflowReferenceResolver, WorkflowReferenceResolver>();
+
+builder.Services.AddSingleton<IApprovedHttpOriginCatalog, ApprovedHttpOriginCatalog>();
+builder.Services.AddSingleton<IPublicNetworkConnector, PublicNetworkConnector>();
+builder.Services.AddSingleton<IOutboundConcurrencyLimiter, OutboundConcurrencyLimiter>();
+builder.Services.AddSingleton<ISafeOutboundHttpClient, SafeOutboundHttpClient>();
 
 // Scoped Services
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
@@ -168,6 +198,8 @@ builder.Services.AddScoped<IStepExecutorRegistry, StepExecutorRegistry>();
 builder.Services.AddScoped<IWorkflowValidationService, WorkflowValidationService>();
 builder.Services.AddScoped<IWorkflowRunner, WorkflowRunner>();
 builder.Services.AddScoped<IWorkflowExecutionService, WorkflowExecutionService>();
+builder.Services.AddScoped<Level1HttpRequestMaterializer>();
+builder.Services.AddScoped<IWorkflowStepExecutor, Level1HttpStepExecutor>();
 
 // HSTS
 builder.Services.AddHsts(options =>

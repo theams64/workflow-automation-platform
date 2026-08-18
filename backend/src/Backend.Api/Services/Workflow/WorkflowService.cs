@@ -343,19 +343,19 @@ namespace Backend.Api.Services.Workflow
                 return ServiceResult<WorkflowStepListResponseDto>.Fail(validationErrors);
             }
 
+            var ownershipResult = await VerifyWorkflowOwnershipAsync(workflowId, cancellationToken);
+
+            if (!ownershipResult.Succeeded)
+            {
+                return ServiceResult<WorkflowStepListResponseDto>.Fail(ownershipResult.Errors);
+            }
+
             var candidateSteps = BuildStepEntities(workflowId, request.Steps);
             var compositionValidation = _workflowValidationService.Validate(candidateSteps, WorkflowValidationMode.Draft);
 
             if (!compositionValidation.Succeeded)
             {
                 return ServiceResult<WorkflowStepListResponseDto>.Fail(compositionValidation.Errors);
-            }
-
-            var ownershipResult = await VerifyWorkflowOwnershipAsync(workflowId, cancellationToken);
-
-            if (!ownershipResult.Succeeded)
-            {
-                return ServiceResult<WorkflowStepListResponseDto>.Fail(ownershipResult.Errors);
             }
 
             var stepsAlreadyExist = await _dbContext.WorkflowStep
@@ -391,19 +391,19 @@ namespace Backend.Api.Services.Workflow
                 return ServiceResult<WorkflowStepListResponseDto>.Fail(validationErrors);
             }
 
+            var ownershipResult = await VerifyWorkflowOwnershipAsync(workflowId, cancellationToken);
+
+            if (!ownershipResult.Succeeded)
+            {
+                return ServiceResult<WorkflowStepListResponseDto>.Fail(ownershipResult.Errors);
+            }
+
             var candidateSteps = BuildStepEntities(workflowId, request.Steps);
             var compositionValidation = _workflowValidationService.Validate(candidateSteps, WorkflowValidationMode.Draft);
 
             if (!compositionValidation.Succeeded)
             {
                 return ServiceResult<WorkflowStepListResponseDto>.Fail(compositionValidation.Errors);
-            }
-
-            var ownershipResult = await VerifyWorkflowOwnershipAsync(workflowId, cancellationToken);
-
-            if (!ownershipResult.Succeeded)
-            {
-                return ServiceResult<WorkflowStepListResponseDto>.Fail(ownershipResult.Errors);
             }
 
             var replacementSteps = candidateSteps;

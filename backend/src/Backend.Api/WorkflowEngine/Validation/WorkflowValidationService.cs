@@ -76,6 +76,16 @@ namespace Backend.Api.WorkflowEngine.Validation
 
         private static void ValidateReference(WorkflowReference reference, IReadOnlyDictionary<string, StepOutputSchema> priorSchemas, int stepNumber, ICollection<ServiceError> errors)
         {
+            if (reference.Scope == WorkflowReferenceScope.Execution)
+            {
+                if (!WorkflowReferencePaths.IsSupportedExecutionPath(reference.Path))
+                {
+                    errors.Add(new("workflow_step.reference_unknown_field", $"Step {stepNumber}: a reference targets an unknown execution field."));
+                }
+
+                return;
+            }
+
             if (reference.Scope != WorkflowReferenceScope.StepOutput)
             {
                 return;

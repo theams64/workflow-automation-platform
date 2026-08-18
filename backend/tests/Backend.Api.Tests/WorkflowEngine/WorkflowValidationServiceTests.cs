@@ -55,6 +55,43 @@ namespace Backend.Api.Tests.WorkflowEngine
             result.Errors.Should().Contain(x => x.Code == "workflow_step.key_duplicate");
         }
 
+        [Fact]
+        public void Validate_ShouldRejectUnknownExecutionMetadataField()
+        {
+            var executor = new FakeStepExecutor("fake");
+            var sut = CreateSut([executor]);
+
+            var result = sut.Validate(
+            [
+                Step("one", "fake", 1, """{"value":"{{ execution.secret }}"}""")
+            ],
+            WorkflowValidationMode.Executable);
+
+            result.Errors.Should().Contain(error => error.Code == "workflow_step.reference_unknown_field");
+        }
+
+        [Fact]
+        public void Validate_ShouldSupportConfiguredSchemaPrefixes()
+        {
+            var producer = new FakeStepExecutor("producer", 
+                new StepOutputSchema(
+                    new HashSet<string>(["body"], StringComparer.Ordinal), 
+                    AllowAdditionalPaths: false, 
+                    AdditionalPathPrefixes: new HashSet<string>(["body"], StringComparer.Ordinal)));
+
+            var consumer = new FakeStepExecutor("consumer");
+            var sut = CreateSut([producer, consumer]);
+
+            var result = sut.Validate(
+            [
+                Step("fetch", "producer", 1, "{}"),
+                Step("consume", "consumer", 2, """{"value":"{{ steps.fetch.output.body.weather.temp }}"}""")
+            ],
+            WorkflowValidationMode.Executable);
+
+            result.Succeeded.Should().BeTrue();
+        }
+
         private static WorkflowValidationService CreateSut(IEnumerable<FakeStepExecutor> executors) => new(new StepExecutorRegistry(executors), new WorkflowReferenceParser());
 
         private static WorkflowStep Step(string key, string type, int order, string config) => new()

@@ -8,9 +8,5 @@
         CurrentItem
     }
 
-    public sealed record WorkflowReference(
-        WorkflowReferenceScope Scope,
-        string? StepKey,
-        string Path
-    );
+    public sealed record WorkflowReference(WorkflowReferenceScope Scope, string? StepKey, string Path);
 }
