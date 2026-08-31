@@ -160,6 +160,34 @@ namespace Backend.Api.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "managed_connection",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    user_id = table.Column<int>(type: "integer", nullable: false),
+                    name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+                    connection_type = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    canonical_origin = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: false),
+                    credential_type = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    secret_reference = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    credential_placement = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
+                    is_enabled = table.Column<bool>(type: "boolean", nullable: false),
+                    revoked_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_managed_connection", x => x.id);
+                    table.ForeignKey(
+                        name: "FK_managed_connection_asp_net_users_user_id",
+                        column: x => x.user_id,
+                        principalTable: "asp_net_users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "refresh_token",
                 columns: table => new
                 {
@@ -374,6 +402,17 @@ namespace Backend.Api.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_managed_connection_user_id_connection_type",
+                table: "managed_connection",
+                columns: new[] { "user_id", "connection_type" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_managed_connection_user_id_name",
+                table: "managed_connection",
+                columns: new[] { "user_id", "name" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "IX_refresh_token_family_id",
                 table: "refresh_token",
                 column: "family_id");
@@ -469,6 +508,9 @@ namespace Backend.Api.Migrations
 
             migrationBuilder.DropTable(
                 name: "asp_net_user_tokens");
+
+            migrationBuilder.DropTable(
+                name: "managed_connection");
 
             migrationBuilder.DropTable(
                 name: "refresh_token");

@@ -92,6 +92,24 @@ namespace Backend.Api.Tests.WorkflowEngine
             result.Succeeded.Should().BeTrue();
         }
 
+        [Fact]
+        public void Validate_ShouldUseConfigurationSpecificOutputSchema()
+        {
+            var producer = new FakeStepExecutor("producer", outputSchema: new StepOutputSchema(new HashSet<string>(StringComparer.Ordinal)), getOutputSchema: _ => new StepOutputSchema(new HashSet<string>(["known"], StringComparer.Ordinal)));
+
+            var consumer = new FakeStepExecutor("consumer");
+            var sut = CreateSut([producer, consumer]);
+
+            var result = sut.Validate(
+            [
+                Step("first", "producer", 1, "{}"),
+                Step("second", "consumer", 2, """{"value":"{{ steps.first.output.known }}"}""")
+            ],
+            WorkflowValidationMode.Executable);
+
+            result.Succeeded.Should().BeTrue();
+        }
+
         private static WorkflowValidationService CreateSut(IEnumerable<FakeStepExecutor> executors) => new(new StepExecutorRegistry(executors), new WorkflowReferenceParser());
 
         private static WorkflowStep Step(string key, string type, int order, string config) => new()

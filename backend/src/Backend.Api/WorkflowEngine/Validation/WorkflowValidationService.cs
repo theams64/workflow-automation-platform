@@ -68,7 +68,20 @@ namespace Backend.Api.WorkflowEngine.Validation
                     ValidateReference(reference, priorSchemas, expectedOrder, errors);
                 }
 
-                priorSchemas.Add(step.StepKey, executor.OutputSchema);
+                StepOutputSchema outputSchema;
+
+                try
+                {
+                    outputSchema = executor.GetOutputSchema(step.ConfigJson);
+                }
+                catch (Exception)
+                {
+                    errors.Add(new("workflow_step.output_schema_invalid", $"Step {expectedOrder}: the step output schema could not be determined."));
+
+                    outputSchema = executor.OutputSchema;
+                }
+
+                priorSchemas.Add(step.StepKey, outputSchema);
             }
 
             return new(errors);

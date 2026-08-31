@@ -6,15 +6,22 @@ using Backend.Api.Models.Entities;
 using Backend.Api.Models.Validation;
 using Backend.Api.Services.Auth;
 using Backend.Api.Services.Common;
+using Backend.Api.Services.ManagedConnection;
+using Backend.Api.Services.ManagedConnections;
 using Backend.Api.Services.Workflow;
 using Backend.Api.Services.WorkflowExecution;
 using Backend.Api.WorkflowEngine.Abstractions;
+using Backend.Api.WorkflowEngine.Composition;
+using Backend.Api.WorkflowEngine.Connections;
 using Backend.Api.WorkflowEngine.Execution;
+using Backend.Api.WorkflowEngine.Expressions;
 using Backend.Api.WorkflowEngine.Http;
 using Backend.Api.WorkflowEngine.Http.Level1;
 using Backend.Api.WorkflowEngine.References;
 using Backend.Api.WorkflowEngine.Registry;
+using Backend.Api.WorkflowEngine.Slack;
 using Backend.Api.WorkflowEngine.Time;
+using Backend.Api.WorkflowEngine.Transform;
 using Backend.Api.WorkflowEngine.Validation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -117,6 +124,31 @@ builder.Services
     .Bind(configuration.GetSection(ApprovedHttpOriginsOptions.SectionName))
     .ValidateOnStart();
 
+builder.Services
+    .AddOptions<WorkflowExpressionOptions>()
+    .Bind(configuration.GetSection(WorkflowExpressionOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services
+    .AddOptions<TransformOptions>()
+    .Bind(configuration.GetSection(TransformOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services
+    .AddOptions<MessageCompositionOptions>()
+    .Bind(configuration.GetSection(MessageCompositionOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services
+    .AddOptions<SlackDeliveryOptions>()
+    .Bind(configuration.GetSection(SlackDeliveryOptions.SectionName))
+    .ValidateDataAnnotations()
+    .Validate(options => options.MaxMessageBytes <= WorkflowLimits.CompositionMaximumMessageBytes, "Slack message limits cannot exceed composition message limits.")
+    .ValidateOnStart();
+
 // JWT Authentication
 builder.Services
     .AddAuthentication(options =>
@@ -186,20 +218,34 @@ builder.Services.AddSingleton<IPublicNetworkConnector, PublicNetworkConnector>()
 builder.Services.AddSingleton<IOutboundConcurrencyLimiter, OutboundConcurrencyLimiter>();
 builder.Services.AddSingleton<ISafeOutboundHttpClient, SafeOutboundHttpClient>();
 
+builder.Services.AddSingleton<WorkflowExpressionEngine>();
+builder.Services.AddSingleton<TransformTemplateProcessor>();
+builder.Services.AddSingleton<IConnectionSecretProvider, ConfigurationConnectionSecretProvider>();
+builder.Services.AddSingleton<ISlackWebhookClient, SlackWebhookClient>();
+
 // Scoped Services
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
+
 builder.Services.AddScoped<ICronExpressionValidator, CronExpressionValidator>();
 builder.Services.AddScoped<IJsonValidationHelper, JsonValidationHelper>();
+
 builder.Services.AddScoped<IWorkflowService, WorkflowService>();
+
 builder.Services.AddScoped<IStepExecutorRegistry, StepExecutorRegistry>();
 builder.Services.AddScoped<IWorkflowValidationService, WorkflowValidationService>();
 builder.Services.AddScoped<IWorkflowRunner, WorkflowRunner>();
 builder.Services.AddScoped<IWorkflowExecutionService, WorkflowExecutionService>();
+
 builder.Services.AddScoped<Level1HttpRequestMaterializer>();
 builder.Services.AddScoped<IWorkflowStepExecutor, Level1HttpStepExecutor>();
+builder.Services.AddScoped<IWorkflowStepExecutor, TransformStepExecutor>();
+builder.Services.AddScoped<IWorkflowStepExecutor, MessageCompositionStepExecutor>();
+builder.Services.AddScoped<IWorkflowStepExecutor, SlackNotificationStepExecutor>();
+builder.Services.AddScoped<IManagedConnectionService, ManagedConnectionService>();
+builder.Services.AddScoped<IManagedConnectionRuntimeResolver, ManagedConnectionRuntimeResolver>();
 
 // HSTS
 builder.Services.AddHsts(options =>

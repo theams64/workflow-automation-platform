@@ -21,6 +21,7 @@ namespace Backend.Api.Data
         public DbSet<WorkflowExecution> WorkflowExecution => Set<WorkflowExecution>();
         public DbSet<StepExecution> StepExecution => Set<StepExecution>();
         public DbSet<RefreshToken> RefreshToken => Set<RefreshToken>();
+        public DbSet<ManagedConnection> ManagedConnection => Set<ManagedConnection>();
 
         protected override void OnModelCreating(ModelBuilder builder)
         {

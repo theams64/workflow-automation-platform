@@ -49,6 +49,36 @@ namespace Backend.Api.Models.Validation
         public const int HttpMaximumPathPrefixes = 64;
         public const int HttpMaximumSelectedResponseHeaders = 20;
 
+        // Shared expression limits
+        public const int ExpressionMaximumDepth = 16;
+        public const int ExpressionMaximumOperations = 10_000;
+        public const int ExpressionMaximumTemplateBytes = 32 * 1024;
+        public const int ExpressionMaximumStringBytes = 64 * 1024;
+        public const int ExpressionMaximumFunctionArguments = 8;
+
+        // Transform limits
+        public const int TransformMaximumDepth = 32;
+        public const int TransformMaximumCollectionItems = 1_000;
+        public const int TransformMaximumPropertiesPerObject = 2_000;
+        public const int TransformMaximumStaticArrayItems = 1_000;
+
+        // Composition limits
+        public const int CompositionMaximumItems = 100;
+        public const int CompositionMaximumMessageBytes = 32 * 1024;
+        public const int CompositionMaximumSeparatorBytes = 256;
+
+        // Managed connection limits
+        public const int ConnectionNameMaxLength = 200;
+        public const int ConnectionTypeMaxLength = 64;
+        public const int ConnectionCanonicalOriginMaxLength = 256;
+        public const int ConnectionCredentialTypeMaxLength = 64;
+        public const int ConnectionSecretReferenceMaxLength = 128;
+        public const int ConnectionCredentialPlacementMaxLength = 32;
+
+        // Slack limits
+        public const int SlackMaximumMessageBytes = 32 * 1024;
+        public const int SlackMaximumResponseBytes = 4 * 1024;
+
         // Page limits
         public const int DefaultPageSize = 20;
         public const int MaxPageSize = 100;

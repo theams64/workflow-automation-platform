@@ -30,5 +30,18 @@
         public const string HttpRequestFailed = "http_request_failed";
         public const string HttpNonSuccessStatus = "http_non_success_status";
         public const string ConcurrencyLimitExceeded = "concurrency_limit_exceeded";
+
+        // Transform / expression error codes
+        public const string TransformValidationFailed = "transform_validation_failed";
+        public const string TransformExecutionFailed = "transform_execution_failed";
+        public const string TemplateValidationFailed = "template_validation_failed";
+        public const string MessageSizeExceeded = "message_size_exceeded";
+
+        // Managed connection / Slack error codes
+        public const string InvalidConnection = "invalid_connection";
+        public const string ConnectionDisabled = "connection_disabled";
+        public const string ConnectionRevoked = "connection_revoked";
+        public const string ConnectionSecretUnavailable = "connection_secret_unavailable";
+        public const string SlackDeliveryFailed = "slack_delivery_failed";
     }
 }

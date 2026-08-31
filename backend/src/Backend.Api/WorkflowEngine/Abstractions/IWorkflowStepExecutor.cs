@@ -11,6 +11,8 @@ namespace Backend.Api.WorkflowEngine.Abstractions
 
         IReadOnlyList<ServiceError> ValidateConfiguration(string configJson, WorkflowValidationContext context);
 
+        StepOutputSchema GetOutputSchema(string configJson);
+
         Task<StepExecutionResult> ExecuteAsync(StepExecutionContext context, CancellationToken cancellationToken);
     }
 }

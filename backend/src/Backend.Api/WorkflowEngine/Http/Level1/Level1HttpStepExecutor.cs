@@ -35,6 +35,8 @@ namespace Backend.Api.WorkflowEngine.Http.Level1
             "selectedHeaders"
         });
 
+        public StepOutputSchema GetOutputSchema(string configJson) => OutputSchema;
+
         public IReadOnlyList<ServiceError> ValidateConfiguration(string configJson, WorkflowValidationContext context)
         {
             Level1HttpStepConfiguration? configuration;
