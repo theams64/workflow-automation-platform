@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -48,6 +49,16 @@ namespace Backend.Api.Tests.Common
         public static AppDbContext CreateUnusedDbContext()
         {
             var options = new DbContextOptionsBuilder<AppDbContext>().Options;
+            return new AppDbContext(options);
+        }
+
+        public static AppDbContext CreateInMemoryDbContext()
+        {
+            var options = new DbContextOptionsBuilder<AppDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .ConfigureWarnings(warnings => warnings.Ignore(InMemoryEventId.TransactionIgnoredWarning))
+                .Options;
+
             return new AppDbContext(options);
         }
     }
