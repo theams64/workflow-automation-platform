@@ -78,6 +78,41 @@ namespace Backend.Api.Tests.Common
             };
         }
 
+        public static HttpResponseMessage BrotliJsonResponse(string json, HttpStatusCode statusCode = HttpStatusCode.OK)
+        {
+            var input = Encoding.UTF8.GetBytes(json);
+
+            using var buffer = new MemoryStream();
+
+            using (var brotli = new BrotliStream(buffer, CompressionMode.Compress, leaveOpen: true))
+            {
+                brotli.Write(input);
+            }
+
+            var content = new ByteArrayContent(buffer.ToArray());
+
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+            content.Headers.ContentEncoding.Add("br");
+
+            return new HttpResponseMessage(statusCode)
+            {
+                Content = content
+            };
+        }
+
+        public static HttpResponseMessage EncodedResponse(string encoding, byte[] body, HttpStatusCode statusCode = HttpStatusCode.OK)
+        {
+            var content = new ByteArrayContent(body);
+
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+            content.Headers.ContentEncoding.Add(encoding);
+
+            return new HttpResponseMessage(statusCode)
+            {
+                Content = content
+            };
+        }
+
         public static SafeOutboundHttpClient CreateClient(
             HttpMessageHandler handler,
             SafeHttpOptions? options = null,

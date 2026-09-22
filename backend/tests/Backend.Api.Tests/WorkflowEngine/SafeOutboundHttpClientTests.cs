@@ -349,5 +349,149 @@ namespace Backend.Api.Tests.WorkflowEngine
             var exception = await action.Should().ThrowAsync<SafeHttpException>();
             exception.Which.Code.Should().Be(ExecutionErrorCodes.InvalidResponse);
         }
+
+        [Fact]
+        public async Task SendAsync_ShouldAdvertiseOnlySupportedContentEncodings()
+        {
+            string[]? advertisedEncodings = null;
+
+            var handler = new DelegateHttpMessageHandler((request, _) =>
+            {
+                advertisedEncodings = request.Headers.AcceptEncoding
+                    .Select(value => value.Value)
+                    .ToArray();
+
+                return Task.FromResult(SafeHttpTestHelpers.JsonResponse("""{"value":42}"""));
+            });
+
+            using var client = SafeHttpTestHelpers.CreateClient(handler);
+
+            await client.SendAsync(SafeHttpTestHelpers.Request(), SafeHttpTestHelpers.Policy(), CancellationToken.None);
+
+            advertisedEncodings.Should().NotBeNull();
+            advertisedEncodings.Should().Equal("gzip", "br");
+            advertisedEncodings.Should().NotContain("deflate");
+        }
+
+        [Fact]
+        public async Task SendAsync_ShouldDecompressGzipResponse()
+        {
+            var handler = new DelegateHttpMessageHandler((_, _) =>
+                Task.FromResult(SafeHttpTestHelpers.GzipJsonResponse("""{"temperature":72.5,"condition":"clear"}""")));
+
+            using var client = SafeHttpTestHelpers.CreateClient(handler);
+
+            var result = await client.SendAsync(SafeHttpTestHelpers.Request(), SafeHttpTestHelpers.Policy(), CancellationToken.None);
+
+            result.StatusCode.Should().Be(200);
+            result.Body.GetProperty("temperature").GetDouble().Should().Be(72.5);
+            result.Body.GetProperty("condition").GetString().Should().Be("clear");
+        }
+
+        [Fact]
+        public async Task SendAsync_ShouldDecompressBrotliResponse()
+        {
+            var handler = new DelegateHttpMessageHandler((_, _) =>
+                Task.FromResult(SafeHttpTestHelpers.BrotliJsonResponse("""{"temperature":72.5,"condition":"clear"}""")));
+
+            using var client = SafeHttpTestHelpers.CreateClient(handler);
+
+            var result = await client.SendAsync(SafeHttpTestHelpers.Request(), SafeHttpTestHelpers.Policy(), CancellationToken.None); 
+
+            result.StatusCode.Should().Be(200);
+            result.Body.GetProperty("temperature").GetDouble().Should().Be(72.5);
+            result.Body.GetProperty("condition").GetString().Should().Be("clear");
+        }
+
+        [Fact]
+        public async Task SendAsync_ShouldRejectDeflateResponseAsUnsupported()
+        {
+            var response = SafeHttpTestHelpers.EncodedResponse("deflate", Encoding.UTF8.GetBytes("""{"value":42}"""));
+
+            var handler = new DelegateHttpMessageHandler((_, _) => Task.FromResult(response));
+
+            using var client = SafeHttpTestHelpers.CreateClient(handler);
+
+            var action = () => client.SendAsync(SafeHttpTestHelpers.Request(), SafeHttpTestHelpers.Policy(), CancellationToken.None);
+
+            var exception = await action.Should().ThrowAsync<SafeHttpException>();
+
+            exception.Which.Code.Should().Be(ExecutionErrorCodes.InvalidResponse);
+            exception.Which.Message.Should().Be("The HTTP response used an unsupported content encoding.");
+        }
+
+        [Fact]
+        public async Task SendAsync_ShouldRejectMalformedGzipResponse()
+        {
+            var response = SafeHttpTestHelpers.EncodedResponse("gzip", Encoding.UTF8.GetBytes("""{"this":"is not actually gzip"}"""));
+
+            var handler = new DelegateHttpMessageHandler((_, _) => Task.FromResult(response));
+
+            using var client = SafeHttpTestHelpers.CreateClient(handler);
+
+            var action = () => client.SendAsync(SafeHttpTestHelpers.Request(), SafeHttpTestHelpers.Policy(), CancellationToken.None);
+
+            var exception = await action.Should().ThrowAsync<SafeHttpException>();
+
+            exception.Which.Code.Should().Be(ExecutionErrorCodes.InvalidResponse);
+            exception.Which.Message.Should().Be("The HTTP response body was invalid.");
+        }
+
+        [Fact]
+        public async Task SendAsync_ShouldRejectMalformedBrotliResponse()
+        {
+            var response = SafeHttpTestHelpers.EncodedResponse("br", [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+
+            var handler = new DelegateHttpMessageHandler((_, _) => Task.FromResult(response));
+
+            using var client = SafeHttpTestHelpers.CreateClient(handler);
+
+            var action = () => client.SendAsync(SafeHttpTestHelpers.Request(), SafeHttpTestHelpers.Policy(), CancellationToken.None);
+
+            var exception = await action.Should().ThrowAsync<SafeHttpException>();
+
+            exception.Which.Code.Should().Be(ExecutionErrorCodes.InvalidResponse);
+            exception.Which.Message.Should().Be("The HTTP response body was invalid.");
+        }
+
+        [Fact]
+        public async Task SendAsync_ShouldRejectMultipleContentEncodings()
+        {
+            var response = SafeHttpTestHelpers.JsonResponse("""{"value":42}""");
+
+            response.Content.Headers.ContentEncoding.Add("gzip");
+            response.Content.Headers.ContentEncoding.Add("br");
+
+            var handler = new DelegateHttpMessageHandler((_, _) => Task.FromResult(response));
+
+            using var client = SafeHttpTestHelpers.CreateClient(handler);
+
+            var action = () => client.SendAsync(SafeHttpTestHelpers.Request(), SafeHttpTestHelpers.Policy(), CancellationToken.None);
+
+            var exception = await action.Should().ThrowAsync<SafeHttpException>();
+
+            exception.Which.Code.Should().Be(ExecutionErrorCodes.InvalidResponse);
+            exception.Which.Message.Should().Be("The HTTP response used an unsupported content encoding.");
+        }
+
+        [Fact]
+        public async Task SendAsync_ShouldLogEncodingWhenDecompressionFails()
+        {
+            var logger = new ListLogger<SafeOutboundHttpClient>();
+
+            var response = SafeHttpTestHelpers.EncodedResponse("gzip", Encoding.UTF8.GetBytes("""{"not":"actually compressed"}"""));
+
+            var handler = new DelegateHttpMessageHandler((_, _) => Task.FromResult(response));
+
+            using var client = SafeHttpTestHelpers.CreateClient(handler, logger: logger);
+
+            var action = () => client.SendAsync(SafeHttpTestHelpers.Request(), SafeHttpTestHelpers.Policy(), CancellationToken.None);
+
+            await action.Should().ThrowAsync<SafeHttpException>();
+
+            logger.Messages.Should().Contain(message =>
+                message.Contains("Failed to decompress HTTP response", StringComparison.Ordinal) &&
+                message.Contains("gzip", StringComparison.OrdinalIgnoreCase));
+        }
     }
 }

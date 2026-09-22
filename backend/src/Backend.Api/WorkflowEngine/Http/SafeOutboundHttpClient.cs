@@ -40,7 +40,6 @@ namespace Backend.Api.WorkflowEngine.Http
             message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             message.Headers.AcceptEncoding.Add(new StringWithQualityHeaderValue("gzip"));
             message.Headers.AcceptEncoding.Add(new StringWithQualityHeaderValue("br"));
-            message.Headers.AcceptEncoding.Add(new StringWithQualityHeaderValue("deflate"));
 
             using var headerTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(policy.ResponseHeadersTimeoutMilliseconds));
             using var headerLinked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, headerTimeout.Token);
@@ -129,11 +128,21 @@ namespace Backend.Api.WorkflowEngine.Http
 
                     throw new SafeHttpException(ExecutionErrorCodes.RequestTimeout, "The HTTP response body timed out.");
                 }
-                catch (InvalidDataException)
+                catch (InvalidDataException exception)
                 {
+                    _logger.LogError(exception, "Failed to decompress HTTP response. Content-Encoding: {ContentEncoding}.", string.Join(", ", response.Content.Headers.ContentEncoding));
+
                     LogFailure(request, ExecutionErrorCodes.InvalidResponse);
 
-                    throw new SafeHttpException(ExecutionErrorCodes.InvalidResponse,"The HTTP response body was invalid.");
+                    throw new SafeHttpException(ExecutionErrorCodes.InvalidResponse, "The HTTP response body was invalid.");
+                }
+                catch (InvalidOperationException exception) when (response.Content.Headers.ContentEncoding.Any(value => string.Equals(value.Trim(), "br", StringComparison.OrdinalIgnoreCase)))
+                {
+                    _logger.LogError(exception, "Failed to decompress HTTP response. Content-Encoding: {ContentEncoding}.", string.Join(", ", response.Content.Headers.ContentEncoding));
+
+                    LogFailure(request, ExecutionErrorCodes.InvalidResponse);
+
+                    throw new SafeHttpException(ExecutionErrorCodes.InvalidResponse, "The HTTP response body was invalid.");
                 }
                 catch (HttpRequestException exception) when (FindSafeHttpException(exception) is { } safeException)
                 {
@@ -244,7 +253,6 @@ namespace Backend.Api.WorkflowEngine.Http
                 "identity" => compressed,
                 "gzip" => new GZipStream(compressed, CompressionMode.Decompress, leaveOpen: false),
                 "br" => new BrotliStream(compressed, CompressionMode.Decompress, leaveOpen: false),
-                "deflate" => new DeflateStream(compressed, CompressionMode.Decompress, leaveOpen: false),
                 _ => throw new SafeHttpException(ExecutionErrorCodes.InvalidResponse, "The HTTP response used an unsupported content encoding.")
             };
 
